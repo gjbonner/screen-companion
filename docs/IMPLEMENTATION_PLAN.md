@@ -59,4 +59,4 @@ Cut in this order: motion polish, the Draft insertion integration test, then onb
 
 ## Out of scope, listed in the write-up
 
-Follow-up questions and history, screenshot-to-message, full multi-display support, the macOS 26 `SpeechAnalyzer` path, hotkey rebinding, and the remaining integration tests.
+Follow-up questions and history, screenshot-to-message, full multi-display support, the macOS 26 `SpeechAnalyzer` path, hotkey rebinding, the remaining integration tests, and an "Ask without a screenshot" option for private screens. Ask already never captures or sends the screen while a password field is active.

@@ -6,8 +6,9 @@ public enum BuddyState: Sendable, Equatable {
 	case listening(transcript: String, level: Float)
 	/// Speech has ended; Buddy is working on the answer or the cleaned-up text.
 	case thinking
-	/// An Ask answer is arriving and being spoken.
-	case answering(text: String, point: PointGuess?)
+	/// An Ask answer is arriving and being spoken. `spokenLength` is how many characters of `text`
+	/// have been spoken or are being spoken now, for highlighting in the answer card.
+	case answering(text: String, point: PointGuess?, spokenLength: Int)
 	/// A short notice in the pill, such as a missing permission or "Copied".
 	case message(BuddyMessage)
 

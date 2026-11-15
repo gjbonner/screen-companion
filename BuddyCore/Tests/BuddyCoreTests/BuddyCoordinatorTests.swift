@@ -25,6 +25,164 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func askSpeaksEachSentenceAsItCompletes() async throws {
+		let harness = Harness(answers: FakeAnswerProvider(events: [
+			.text("Click Edit next to the ad set."),
+			.text(" Budget is under "),
+			.text("Budget & Schedule."),
+		]))
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.speech.spoken == ["Click Edit next to the ad set.", "Budget is under Budget & Schedule."])
+	}
+
+	@Test
+	func answerCardTracksHowMuchHasBeenSpoken() async throws {
+		let harness = Harness(
+			answers: FakeAnswerProvider(events: [.text("First part. Second part.")]),
+			speech: FakeSpeech(holdsUntilStopped: true)
+		)
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { await harness.speech.spoken.count == 1 }
+
+		#expect(buddy.state == .answering(text: "First part. Second part.", point: nil, spokenLength: "First part.".count))
+		buddy.cancel()
+	}
+
+	@Test
+	func toggleMutedFlipsTheSetting() {
+		let buddy = Harness().coordinator
+
+		#expect(!buddy.isMuted)
+		buddy.toggleMuted()
+		#expect(buddy.isMuted)
+		buddy.toggleMuted()
+		#expect(!buddy.isMuted)
+	}
+
+	@Test
+	func mutedAnswerIsShownButNotSpoken() async throws {
+		let harness = Harness(answers: FakeAnswerProvider(events: [.text("Click Edit. Then save.")]))
+		let buddy = harness.coordinator
+		buddy.setMuted(true)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .answering(let text, _, _) = buddy.state {
+				return text == "Click Edit. Then save."
+			}
+			return buddy.state == .idle
+		}
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.speech.spoken.isEmpty)
+	}
+
+	@Test
+	func mutingMidAnswerStopsSpeechAndSkipsTheRest() async throws {
+		let answers = ControlledAnswerProvider()
+		let harness = Harness(answers: FakeAnswerProvider(), speech: FakeSpeech(holdsUntilStopped: true))
+		let buddy = BuddyCoordinatorTests.coordinator(harness: harness, answers: answers)
+
+		buddy.startListening()
+		buddy.stopListening()
+		answers.continuation.yield(.text("First sentence. "))
+		try await waitUntil { await harness.speech.spoken == ["First sentence."] }
+
+		buddy.setMuted(true)
+		try await waitUntil { await harness.speech.stopCount == 1 }
+
+		answers.continuation.yield(.text("Second sentence. Third sentence."))
+		answers.continuation.finish()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.speech.spoken == ["First sentence."])
+	}
+
+	@Test
+	func unmutingMidAnswerSpeaksTheSentencesThatFollow() async throws {
+		let answers = ControlledAnswerProvider()
+		let harness = Harness()
+		let buddy = BuddyCoordinatorTests.coordinator(harness: harness, answers: answers)
+		buddy.setMuted(true)
+
+		buddy.startListening()
+		buddy.stopListening()
+		answers.continuation.yield(.text("First sentence. "))
+		try await waitUntil {
+			if case .answering = buddy.state {
+				return true
+			}
+			return false
+		}
+
+		buddy.setMuted(false)
+		answers.continuation.yield(.text("Second sentence."))
+		answers.continuation.finish()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.speech.spoken == ["Second sentence."])
+	}
+
+	@Test
+	func mutedAnswerStaysUpLongEnoughToRead() async throws {
+		let harness = Harness(answers: FakeAnswerProvider(events: [.text("One two three four five six.")]))
+		let buddy = BuddyCoordinator(
+			services: BuddyCoordinatorTests.services(harness: harness, answers: FakeAnswerProvider(events: [.text("One two three four five six.")])),
+			isMuted: true,
+			answerLinger: .zero,
+			readingTimePerWord: .seconds(10)
+		)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .answering = buddy.state {
+				return true
+			}
+			return false
+		}
+		try await Task.sleep(for: .milliseconds(200))
+
+		guard case .answering = buddy.state else {
+			Issue.record("A muted answer disappeared before it could be read: \(buddy.state)")
+			return
+		}
+		buddy.cancel()
+	}
+
+	private static func services(harness: Harness, answers: any AnswerProvider) -> BuddyServices {
+		BuddyServices(
+			permissions: FakePermissions(),
+			transcriber: harness.transcriber,
+			screen: harness.screen,
+			secureInput: harness.secureInput,
+			answers: answers,
+			cleaner: FakeCleaner(),
+			speech: harness.speech,
+			inserter: harness.inserter,
+			apiKeys: FakeAPIKeys()
+		)
+	}
+
+	private static func coordinator(harness: Harness, answers: any AnswerProvider) -> BuddyCoordinator {
+		BuddyCoordinator(
+			services: services(harness: harness, answers: answers),
+			messageDuration: .seconds(60),
+			answerLinger: .zero,
+			readingTimePerWord: .zero
+		)
+	}
+
+	@Test
 	func draftHappyPathInsertsCleanedTextWithoutCapturing() async throws {
 		let harness = Harness(
 			finalText: "um hello greg",
@@ -215,6 +373,7 @@ struct BuddyCoordinatorTests {
 				permissions: FakePermissions(),
 				transcriber: transcriber,
 				screen: FakeScreenCapturer(),
+				secureInput: FakeSecureInput(),
 				answers: FakeAnswerProvider(),
 				cleaner: FakeCleaner(),
 				speech: FakeSpeech(),

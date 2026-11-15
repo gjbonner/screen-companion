@@ -19,12 +19,18 @@ struct ScreenCompanionApp: App {
 /// Owns the long-lived objects. Created once at launch; everything else receives what it needs from here.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-	let coordinator = BuddyCoordinator(services: .live)
+	private static let mutedDefaultsKey = "muteAnswers"
+
+	let coordinator = BuddyCoordinator(
+		services: .live,
+		isMuted: UserDefaults.standard.bool(forKey: AppDelegate.mutedDefaultsKey)
+	)
 	private var pill: PillPanelController?
 	private var hotkeys: HotkeyMonitor?
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		pill = PillPanelController(coordinator: coordinator)
+		rememberMuteSetting()
 
 		let monitor = HotkeyMonitor(
 			onAction: { [weak self] action in
@@ -41,6 +47,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		if !AXIsProcessTrusted() {
 			let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
 			_ = AXIsProcessTrustedWithOptions(options)
+		}
+	}
+
+	/// Saves the mute setting whenever it changes, from the menu or the pill.
+	private func rememberMuteSetting() {
+		withObservationTracking {
+			_ = coordinator.isMuted
+		} onChange: { [weak self] in
+			DispatchQueue.main.async {
+				guard let self else {
+					return
+				}
+				UserDefaults.standard.set(self.coordinator.isMuted, forKey: Self.mutedDefaultsKey)
+				self.rememberMuteSetting()
+			}
 		}
 	}
 

@@ -6,10 +6,17 @@ import Foundation
 
 extension BuddyServices {
 	/// What the app runs with: real implementations where they exist, placeholders for the rest.
+	@MainActor
 	static var live: BuddyServices {
+		let apiKeys = KeychainAPIKeyStore()
 		var services = placeholders
 		services.permissions = SystemPermissionChecker()
 		services.transcriber = SpeechRecognizerTranscriber()
+		services.screen = ScreenCaptureKitCapturer()
+		services.secureInput = SystemSecureInputDetector()
+		services.answers = GroqClient(apiKeys: apiKeys)
+		services.speech = SystemSpeechOutput()
+		services.apiKeys = apiKeys
 		return services
 	}
 
@@ -18,6 +25,7 @@ extension BuddyServices {
 			permissions: AssumeGrantedPermissions(),
 			transcriber: NotBuiltTranscriber(),
 			screen: NotBuiltScreenCapturer(),
+			secureInput: SystemSecureInputDetector(),
 			answers: NotBuiltAnswerProvider(),
 			cleaner: NotBuiltDictationCleaner(),
 			speech: SilentSpeechOutput(),

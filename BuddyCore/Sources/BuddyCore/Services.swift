@@ -60,6 +60,12 @@ public protocol ScreenCapturer: Sendable {
 	func captureDisplayUnderCursor() async throws -> CapturedScreen
 }
 
+/// Reports whether a password field (macOS Secure Input) is active. Screenshots go to a cloud model,
+/// so Buddy never captures or sends the screen while one is.
+public protocol SecureInputDetector: Sendable {
+	func isSecureInputActive() -> Bool
+}
+
 // MARK: - Model
 
 /// The model's guess at where to point, in the captured image's pixel coordinates (origin top-left).
@@ -121,6 +127,7 @@ public struct BuddyServices: Sendable {
 	public var permissions: any PermissionChecker
 	public var transcriber: any Transcriber
 	public var screen: any ScreenCapturer
+	public var secureInput: any SecureInputDetector
 	public var answers: any AnswerProvider
 	public var cleaner: any DictationCleaner
 	public var speech: any SpeechOutput
@@ -131,6 +138,7 @@ public struct BuddyServices: Sendable {
 		permissions: any PermissionChecker,
 		transcriber: any Transcriber,
 		screen: any ScreenCapturer,
+		secureInput: any SecureInputDetector,
 		answers: any AnswerProvider,
 		cleaner: any DictationCleaner,
 		speech: any SpeechOutput,
@@ -140,6 +148,7 @@ public struct BuddyServices: Sendable {
 		self.permissions = permissions
 		self.transcriber = transcriber
 		self.screen = screen
+		self.secureInput = secureInput
 		self.answers = answers
 		self.cleaner = cleaner
 		self.speech = speech

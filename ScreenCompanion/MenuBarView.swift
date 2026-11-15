@@ -29,6 +29,10 @@ struct MenuBarView: View {
 				.font(.caption)
 				.foregroundStyle(.secondary)
 
+			Toggle("Speak answers", isOn: speakAnswersBinding)
+				.toggleStyle(.switch)
+				.controlSize(.small)
+
 			Divider()
 
 			Button("Quit Buddy") {
@@ -44,6 +48,13 @@ struct MenuBarView: View {
 		Binding(
 			get: { coordinator.mode },
 			set: { coordinator.setMode($0) }
+		)
+	}
+
+	private var speakAnswersBinding: Binding<Bool> {
+		Binding(
+			get: { !coordinator.isMuted },
+			set: { coordinator.setMuted(!$0) }
 		)
 	}
 
