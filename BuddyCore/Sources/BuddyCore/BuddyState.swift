@@ -8,7 +8,8 @@ public enum BuddyState: Sendable, Equatable {
 	case thinking
 	/// An Ask answer is arriving and being spoken. `spokenLength` is how many characters of `text`
 	/// have been spoken or are being spoken now, for highlighting in the answer card.
-	case answering(text: String, point: PointGuess?, spokenLength: Int)
+	/// `point` is where the mark points, once located; nil while locating or when not pointing.
+	case answering(text: String, point: Pointing?, spokenLength: Int)
 	/// A short notice in the pill, such as a missing permission or "Copied".
 	case message(BuddyMessage)
 

@@ -17,6 +17,7 @@ public final class BuddyCoordinator {
 	@ObservationIgnored private let readingTimePerWord: Duration
 	@ObservationIgnored private var requestTask: Task<Void, Never>?
 	@ObservationIgnored private var captureTask: Task<CapturedScreen, any Error>?
+	@ObservationIgnored private var pointTask: Task<Void, Never>?
 	@ObservationIgnored private var messageTask: Task<Void, Never>?
 	/// Stopping the previous request's transcriber and speech; a new request waits for this first.
 	@ObservationIgnored private var cleanupTask: Task<Void, Never>?
@@ -194,7 +195,6 @@ public final class BuddyCoordinator {
 
 		var splitter = SentenceSplitter()
 		var text = ""
-		var point: PointGuess?
 		var searchOffset = 0
 
 		func queue(_ completed: [String]) {
@@ -213,9 +213,9 @@ public final class BuddyCoordinator {
 					text += chunk
 					queue(splitter.add(chunk))
 				case .point(let guess):
-					point = guess
+					locatePoint(guess, on: screen)
 				}
-				state = .answering(text: text, point: point, spokenLength: currentSpokenLength)
+				state = .answering(text: text, point: currentPoint, spokenLength: currentSpokenLength)
 			}
 			queue(splitter.finish())
 		} catch {
@@ -289,6 +289,31 @@ public final class BuddyCoordinator {
 		return 0
 	}
 
+	private var currentPoint: Pointing? {
+		if case .answering(_, let point, _) = state {
+			return point
+		}
+		return nil
+	}
+
+	/// Locates the guess in the background, while the answer keeps arriving and being spoken,
+	/// and adds it to the answer once found.
+	private func locatePoint(_ guess: PointGuess, on screen: CapturedScreen) {
+		pointTask?.cancel()
+		let locator = services.pointer
+		pointTask = Task { [weak self] in
+			let target = await locator.locate(guess, on: screen)
+			guard !Task.isCancelled, let self, let target, case .answering(let text, _, let spokenLength) = self.state else {
+				return
+			}
+			self.state = .answering(
+				text: text,
+				point: Pointing(target: target, displayFrame: screen.displayFrame),
+				spokenLength: spokenLength
+			)
+		}
+	}
+
 	/// Where `sentence` ends in `text`, searching from `offset`. Falls back to the end of the text.
 	static func endOffset(of sentence: String, in text: String, from offset: Int) -> Int {
 		let start = text.index(text.startIndex, offsetBy: min(offset, text.count))
@@ -328,6 +353,8 @@ public final class BuddyCoordinator {
 		requestTask = nil
 		captureTask?.cancel()
 		captureTask = nil
+		pointTask?.cancel()
+		pointTask = nil
 		messageTask?.cancel()
 		messageTask = nil
 		if wasBusy {

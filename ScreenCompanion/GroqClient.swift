@@ -72,9 +72,10 @@ struct GroqClient: AnswerProvider, DictationCleaner {
 		Answer their question in one to three short sentences written to be spoken aloud: no lists, markdown, or links.
 		Refer to things on screen by their visible labels. If the question is unclear, say so in one short sentence instead of guessing.
 		If pointing at one specific on-screen element would help, end with one final line in exactly this form:
-		POINT: x,y | short label
+		POINT: x,y | label
 		where x,y are the pixel coordinates of that element's center in the screenshot, which is \(Int(imageSize.width))×\(Int(imageSize.height)) pixels with the origin at the top left.
-		Leave the POINT line out when pointing wouldn't help.
+		For the label, copy the element's visible text exactly as shown (for example README.md or Add to cart). If it has no visible text, give the name an app would use for it, not what it looks like: Run rather than play icon, Settings rather than gear, Delete rather than trash can.
+		Leave the POINT line out when pointing wouldn't help, or when you can't clearly see the element in the screenshot. Never guess a position.
 		"""
 	}
 

@@ -26,10 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		isMuted: UserDefaults.standard.bool(forKey: AppDelegate.mutedDefaultsKey)
 	)
 	private var pill: PillPanelController?
+	private var overlay: PointOverlayController?
 	private var hotkeys: HotkeyMonitor?
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		pill = PillPanelController(coordinator: coordinator)
+		overlay = PointOverlayController(coordinator: coordinator)
+		Task.detached(priority: .utility) {
+			ScreenTextFinder.warmUp()
+		}
 		rememberMuteSetting()
 
 		let monitor = HotkeyMonitor(

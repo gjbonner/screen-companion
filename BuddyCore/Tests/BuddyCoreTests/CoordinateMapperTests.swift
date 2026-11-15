@@ -82,6 +82,23 @@ struct CoordinateMapperTests {
 		Self.expect(CoordinateMapper(screen: screen).screenPoint(forImagePoint: CGPoint(x: 400, y: 300)), CGPoint(x: 480, y: 720))
 	}
 
+	@Test
+	func imageRectMapsToTheScreen() {
+		// README.md's text on GitHub: (322, 552, 69×14) in a 1600×900 capture of a 1920×1080 display to the right.
+		let mapper = Self.mapper(image: CGSize(width: 1600, height: 900), display: CGRect(x: 1920, y: 0, width: 1920, height: 1080))
+		let rect = mapper.screenRect(forImageRect: CGRect(x: 322, y: 552, width: 69, height: 14))
+		#expect(abs(rect.minX - (1920 + 322 * 1.2)) < 0.01)
+		#expect(abs(rect.maxY - (1080 - 552 * 1.2)) < 0.01)
+		#expect(abs(rect.width - 69 * 1.2) < 0.01)
+		#expect(abs(rect.height - 14 * 1.2) < 0.01)
+	}
+
+	@Test
+	func imageRectOnAnEmptyImageIsZero() {
+		let mapper = Self.mapper(image: .zero, display: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+		#expect(mapper.screenRect(forImageRect: CGRect(x: 1, y: 1, width: 1, height: 1)) == .zero)
+	}
+
 	// MARK: - AppKit and Accessibility coordinates
 
 	@Test

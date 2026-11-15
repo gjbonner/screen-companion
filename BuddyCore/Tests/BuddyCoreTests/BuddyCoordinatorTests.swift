@@ -57,6 +57,34 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func pointIsLocatedOnTheDisplayItWasGuessedOn() async throws {
+		let guess = PointGuess(imagePoint: CGPoint(x: 400, y: 300), label: "Edit button")
+		let harness = Harness(
+			answers: FakeAnswerProvider(events: [.text("Click Edit."), .point(guess)]),
+			speech: FakeSpeech(holdsUntilStopped: true)
+		)
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .answering(_, .some, _) = buddy.state {
+				return true
+			}
+			return false
+		}
+
+		guard case .answering(_, let point?, _) = buddy.state else {
+			Issue.record("Expected an answer with a point")
+			return
+		}
+		#expect(point.displayFrame == FakeScreenCapturer.sample.displayFrame)
+		// The fake screen is 1920×1080 captured at 1600×900, so (400, 300) is (480, 720) in AppKit points.
+		#expect(point.target == PointTarget(frame: CGRect(x: 470, y: 710, width: 20, height: 20)))
+		buddy.cancel()
+	}
+
+	@Test
 	func toggleMutedFlipsTheSetting() {
 		let buddy = Harness().coordinator
 
@@ -166,6 +194,7 @@ struct BuddyCoordinatorTests {
 			screen: harness.screen,
 			secureInput: harness.secureInput,
 			answers: answers,
+			pointer: FakePointLocator(),
 			cleaner: FakeCleaner(),
 			speech: harness.speech,
 			inserter: harness.inserter,
@@ -501,6 +530,7 @@ struct BuddyCoordinatorTests {
 				screen: FakeScreenCapturer(),
 				secureInput: FakeSecureInput(),
 				answers: FakeAnswerProvider(),
+				pointer: FakePointLocator(),
 				cleaner: FakeCleaner(),
 				speech: FakeSpeech(),
 				inserter: FakeInserter(),

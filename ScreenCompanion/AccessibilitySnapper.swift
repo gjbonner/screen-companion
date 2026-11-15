@@ -2,15 +2,18 @@ import AppKit
 import ApplicationServices
 import BuddyCore
 
-/// Snaps the model's guess to the real UI element there, using Accessibility (ADR 0004).
+/// Finds on-screen elements for pointing, using Accessibility (ADR 0004).
 ///
-/// It asks which element is at the guess and at points around it, adds each one's parents (so the text inside
-/// a button also yields the button), and lets `SnapGuardrails` pick one or keep the guess.
+/// Two kinds of candidate: elements right around the guess (and their parents, so the text inside a button also
+/// yields the button), and elements anywhere in the guess's window whose name matches the model's label. The second
+/// covers icons with no visible text, such as Xcode's Run button, which text recognition can't find.
+/// Blocking; call it off the main thread.
 struct AccessibilitySnapper: Sendable {
-	/// Where elements are looked up, relative to the guess: the guess itself, then rings at half and full snapping distance.
+	/// Where elements are looked up, relative to the guess: the guess itself, then rings at 10 and 20 pt.
+	/// Only elements whose name matches count, so these mostly serve to find the window to search.
 	static let sampleOffsets: [CGVector] = {
 		var offsets = [CGVector(dx: 0, dy: 0)]
-		for radius in [SnapGuardrails.maxDistance / 2, SnapGuardrails.maxDistance] {
+		for radius: CGFloat in [10, 20] {
 			for step in 0..<8 {
 				let angle = Double(step) * .pi / 4
 				offsets.append(CGVector(dx: radius * cos(angle), dy: radius * sin(angle)))
@@ -21,39 +24,19 @@ struct AccessibilitySnapper: Sendable {
 
 	/// How many parents of each element found are also considered.
 	static let ancestorLevels = 3
+	/// Limits on the search of the window for a matching name, so a huge web page can't stall pointing.
+	static let maxTreeNodes = 1500
+	static let treeSearchBudget: Duration = .milliseconds(300)
 
 	/// Buddy's own windows are skipped when they're on top of the guess. Tests can pass another process.
 	var ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier
 	/// Longest wait for any one Accessibility call, in seconds, so a slow app can't hold up pointing.
 	var messagingTimeout: Float = 0.1
 
-	/// Where to point for the model's guess on the captured screen, or nil if the guess is outside the screenshot.
-	@MainActor
-	func target(for guess: PointGuess, on screen: CapturedScreen) async -> PointTarget? {
-		guard let point = CoordinateMapper(screen: screen).screenPoint(forImagePoint: guess.imagePoint) else {
-			Log.point.info("Guess \(String(describing: guess.imagePoint), privacy: .public) is outside the screenshot")
-			return nil
-		}
-		guard AXIsProcessTrusted(), let primaryDisplayHeight = NSScreen.screens.first?.frame.height else {
-			return .guess(point)
-		}
-		let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
-		let started = ContinuousClock.now
-		let candidates = await Task.detached { [self] in
-			candidates(near: point, primaryDisplayHeight: primaryDisplayHeight, frontmostProcess: frontmost)
-		}.value
-		let target = SnapGuardrails.target(guess: point, label: guess.label, candidates: candidates, displayFrame: screen.displayFrame)
-		Log.point.info("""
-			Guess \(String(describing: guess.imagePoint), privacy: .public) "\(guess.label, privacy: .public)" → \
-			\(String(describing: point), privacy: .public), \(candidates.count, privacy: .public) candidates in \
-			\(ContinuousClock.now - started, privacy: .public), target \(String(describing: target), privacy: .public)
-			""")
-		return target
-	}
-
-	// MARK: - Lookup
-
-	private func candidates(near point: CGPoint, primaryDisplayHeight: CGFloat, frontmostProcess: pid_t?) -> [SnapCandidate] {
+	/// - Parameters:
+	///   - point: the guess in AppKit global points.
+	///   - primaryDisplayHeight: the height of the display with the menu bar, for converting to Accessibility coordinates.
+	func candidates(near point: CGPoint, label: String, primaryDisplayHeight: CGFloat, frontmostProcess: pid_t?) -> [SnapCandidate] {
 		let systemWide = AXUIElementCreateSystemWide()
 		AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
 		var frontmostApp: AXUIElement?
@@ -64,11 +47,15 @@ struct AccessibilitySnapper: Sendable {
 		}
 
 		var found: [SnapCandidate] = []
+		var window: AXUIElement?
 		for offset in Self.sampleOffsets {
 			let screenPoint = CGPoint(x: point.x + offset.dx, y: point.y + offset.dy)
 			let position = CoordinateMapper.accessibilityPoint(fromScreenPoint: screenPoint, primaryDisplayHeight: primaryDisplayHeight)
 			guard let hit = element(at: position, systemWide: systemWide, underBuddyIn: frontmostApp) else {
 				continue
+			}
+			if window == nil {
+				window = self.window(of: hit)
 			}
 			for element in withAncestors(hit) {
 				guard let candidate = candidate(for: element, primaryDisplayHeight: primaryDisplayHeight),
@@ -78,7 +65,46 @@ struct AccessibilitySnapper: Sendable {
 				found.append(candidate)
 			}
 		}
+
+		if let window {
+			for match in nameMatches(for: label, in: window, primaryDisplayHeight: primaryDisplayHeight) where !found.contains(match) {
+				found.append(match)
+			}
+		}
 		return found
+	}
+
+	// MARK: - Lookup
+
+	/// Elements in the window whose name matches the model's label.
+	///
+	/// Breadth-first, so shallow parts such as toolbars are reached before deep content, within node and time limits.
+	private func nameMatches(for label: String, in window: AXUIElement, primaryDisplayHeight: CGFloat) -> [SnapCandidate] {
+		let started = ContinuousClock.now
+		let deadline = started + Self.treeSearchBudget
+		var queue = [window]
+		var next = 0
+		var matches: [SnapCandidate] = []
+		while next < queue.count, next < Self.maxTreeNodes, ContinuousClock.now < deadline {
+			let element = queue[next]
+			next += 1
+			let role = string(kAXRoleAttribute, of: element)
+			if let name = self.label(of: element, role: role),
+				SnapGuardrails.labelsMatch(label, name),
+				let frame = frame(of: element) {
+				matches.append(SnapCandidate(
+					frame: CoordinateMapper.screenRect(fromAccessibilityRect: frame, primaryDisplayHeight: primaryDisplayHeight),
+					role: role,
+					label: name
+				))
+			}
+			queue.append(contentsOf: children(of: element))
+		}
+		Log.point.info("""
+			Accessibility search for "\(label, privacy: .public)": \(matches.count, privacy: .public) matches, \
+			\(next, privacy: .public) elements in \(ContinuousClock.now - started, privacy: .public)
+			""")
+		return matches
 	}
 
 	/// The element at a point (Accessibility coordinates). If Buddy's own window is on top there, looks in the frontmost app instead.
@@ -135,7 +161,7 @@ struct AccessibilitySnapper: Sendable {
 
 	// MARK: - Attributes
 
-	/// The element's visible name: its title, description, text (for static text) or placeholder.
+	/// The element's name: its title, description, text (for static text) or placeholder.
 	private func label(of element: AXUIElement, role: String?) -> String? {
 		var names = [kAXTitleAttribute, kAXDescriptionAttribute]
 		if role == kAXStaticTextRole {
@@ -164,7 +190,24 @@ struct AccessibilitySnapper: Sendable {
 	}
 
 	private func parent(of element: AXUIElement) -> AXUIElement? {
-		guard let value = copyAttribute(kAXParentAttribute, of: element), CFGetTypeID(value) == AXUIElementGetTypeID() else {
+		self.element(kAXParentAttribute, of: element)
+	}
+
+	private func window(of element: AXUIElement) -> AXUIElement? {
+		self.element(kAXWindowAttribute, of: element)
+	}
+
+	private func children(of element: AXUIElement) -> [AXUIElement] {
+		guard let value = copyAttribute(kAXChildrenAttribute, of: element), CFGetTypeID(value) == CFArrayGetTypeID() else {
+			return []
+		}
+		return (value as! [CFTypeRef]).compactMap { child in
+			CFGetTypeID(child) == AXUIElementGetTypeID() ? (child as! AXUIElement) : nil
+		}
+	}
+
+	private func element(_ name: String, of element: AXUIElement) -> AXUIElement? {
+		guard let value = copyAttribute(name, of: element), CFGetTypeID(value) == AXUIElementGetTypeID() else {
 			return nil
 		}
 		return (value as! AXUIElement)

@@ -46,8 +46,35 @@ public struct CoordinateMapper: Sendable, Equatable {
 		CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
 	}
 
+	/// The AppKit global rect for a rect in the screenshot (pixels, origin top-left), such as recognized text.
+	public func screenRect(forImageRect rect: CGRect) -> CGRect {
+		guard imagePixelSize.width > 0, imagePixelSize.height > 0 else {
+			return .zero
+		}
+		let scaleX = displayFrame.width / imagePixelSize.width
+		let scaleY = displayFrame.height / imagePixelSize.height
+		return CGRect(
+			x: displayFrame.minX + rect.minX * scaleX,
+			y: displayFrame.maxY - rect.maxY * scaleY,
+			width: rect.width * scaleX,
+			height: rect.height * scaleY
+		)
+	}
+
 	/// Converts an element's Accessibility frame (origin at its top-left) to an AppKit rect (origin at its bottom-left).
 	public static func screenRect(fromAccessibilityRect rect: CGRect, primaryDisplayHeight: CGFloat) -> CGRect {
 		CGRect(x: rect.minX, y: primaryDisplayHeight - rect.maxY, width: rect.width, height: rect.height)
+	}
+}
+
+/// Where the mark points, located on screen, and the display it's on.
+public struct Pointing: Sendable, Equatable {
+	public var target: PointTarget
+	/// The display the screenshot was taken of, in AppKit global points.
+	public var displayFrame: CGRect
+
+	public init(target: PointTarget, displayFrame: CGRect) {
+		self.target = target
+		self.displayFrame = displayFrame
 	}
 }

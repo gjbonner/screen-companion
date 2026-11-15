@@ -98,6 +98,15 @@ final class ControlledAnswerProvider: AnswerProvider {
 	}
 }
 
+/// Points at a 20×20 element centred on the guess, mapped to the screen, or nowhere if the guess is outside the screenshot.
+struct FakePointLocator: PointLocator {
+	func locate(_ guess: PointGuess, on screen: CapturedScreen) async -> PointTarget? {
+		CoordinateMapper(screen: screen).screenPoint(forImagePoint: guess.imagePoint).map { point in
+			PointTarget(frame: CGRect(x: point.x - 10, y: point.y - 10, width: 20, height: 20))
+		}
+	}
+}
+
 final class FakeCleaner: DictationCleaner {
 	private let transform: @Sendable (String) -> String
 	private let error: BuddyError?
@@ -254,6 +263,7 @@ struct Harness {
 				screen: screen,
 				secureInput: secureInput,
 				answers: self.answers,
+				pointer: FakePointLocator(),
 				cleaner: cleaner,
 				speech: speech,
 				inserter: inserter,

@@ -16,6 +16,7 @@ extension BuddyServices {
 		services.screen = ScreenCaptureKitCapturer()
 		services.secureInput = SystemSecureInputDetector()
 		services.answers = groq
+		services.pointer = ScreenPointLocator()
 		services.cleaner = groq
 		services.speech = SystemSpeechOutput()
 		services.inserter = ClipboardTextInserter()
@@ -30,6 +31,7 @@ extension BuddyServices {
 			screen: NotBuiltScreenCapturer(),
 			secureInput: SystemSecureInputDetector(),
 			answers: NotBuiltAnswerProvider(),
+			pointer: NoPointLocator(),
 			cleaner: NotBuiltDictationCleaner(),
 			speech: SilentSpeechOutput(),
 			inserter: NotBuiltTextInserter(),
@@ -65,6 +67,12 @@ struct NotBuiltScreenCapturer: ScreenCapturer {
 struct NotBuiltAnswerProvider: AnswerProvider {
 	func answer(question: String, screen: CapturedScreen) -> AsyncThrowingStream<AnswerEvent, any Error> {
 		AsyncThrowingStream { $0.finish(throwing: notBuilt) }
+	}
+}
+
+struct NoPointLocator: PointLocator {
+	func locate(_ guess: PointGuess, on screen: CapturedScreen) async -> PointTarget? {
+		nil
 	}
 }
 
