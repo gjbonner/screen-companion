@@ -16,5 +16,8 @@ xcuserdata/
 # Code coverage data written when the app or tests run
 *.profraw
 
+# Release zip, attached to GitHub Releases instead
+Buddy.zip
+
 # Secrets
 .env
