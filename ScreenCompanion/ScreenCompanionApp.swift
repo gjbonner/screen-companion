@@ -8,7 +8,7 @@ struct ScreenCompanionApp: App {
 
 	var body: some Scene {
 		MenuBarExtra {
-			MenuBarView(coordinator: appDelegate.coordinator, setup: appDelegate.setup) {
+			MenuBarView(coordinator: appDelegate.coordinator, setup: appDelegate.setup, hotkey: appDelegate.hotkey) {
 				appDelegate.showSetup()
 			}
 		} label: {
@@ -28,7 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		isMuted: UserDefaults.standard.bool(forKey: AppDelegate.mutedDefaultsKey)
 	)
 	let setup = SetupMonitor()
-	private lazy var onboarding = OnboardingWindowController(setup: setup)
+	let hotkey = HotkeySetting()
+	private lazy var onboarding = OnboardingWindowController(setup: setup, hotkey: hotkey)
 	private var pill: PillPanelController?
 	private var overlay: PointOverlayController?
 	private var hotkeys: HotkeyMonitor?
@@ -42,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		rememberMuteSetting()
 
 		let monitor = HotkeyMonitor(
+			hotkey: hotkey.choice,
 			onAction: { [weak self] action in
 				self?.handle(action)
 			},
@@ -51,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		)
 		monitor.start()
 		hotkeys = monitor
+		followHotkeySetting()
 
 		if !setup.checklist.isComplete {
 			showSetup()
@@ -59,6 +62,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func showSetup() {
 		onboarding.show()
+	}
+
+	/// Passes a new hotkey choice, from the menu bar or the setup window, to the monitor.
+	private func followHotkeySetting() {
+		withObservationTracking {
+			_ = hotkey.choice
+		} onChange: { [weak self] in
+			DispatchQueue.main.async {
+				guard let self else {
+					return
+				}
+				self.hotkeys?.setHotkey(self.hotkey.choice)
+				self.followHotkeySetting()
+			}
+		}
 	}
 
 	/// Saves the mute setting whenever it changes, from the menu or the pill.

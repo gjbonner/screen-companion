@@ -15,7 +15,12 @@ public final class BuddyCoordinator {
 	@ObservationIgnored private let messageDuration: Duration
 	@ObservationIgnored private let answerLinger: Duration
 	@ObservationIgnored private let readingTimePerWord: Duration
+	@ObservationIgnored private let silenceTimeout: Duration
 	@ObservationIgnored private var requestTask: Task<Void, Never>?
+	/// Ends listening started from the menu bar after `silenceTimeout` without sound.
+	@ObservationIgnored private var silenceTask: Task<Void, Never>?
+	/// When sound or new words last arrived while listening.
+	@ObservationIgnored private var lastSoundAt = ContinuousClock.now
 	@ObservationIgnored private var captureTask: Task<CapturedScreen, any Error>?
 	@ObservationIgnored private var pointTask: Task<Void, Never>?
 	@ObservationIgnored private var messageTask: Task<Void, Never>?
@@ -27,18 +32,21 @@ public final class BuddyCoordinator {
 	///   - messageDuration: how long a notice stays in the pill.
 	///   - answerLinger: how long the answer card stays after Buddy finishes speaking.
 	///   - readingTimePerWord: when muted, the card stays this long per word so there's time to read it.
+	///   - silenceTimeout: listening started from the menu bar stops after this long without sound.
 	public init(
 		services: BuddyServices,
 		isMuted: Bool = false,
 		messageDuration: Duration = .seconds(3),
 		answerLinger: Duration = .seconds(2),
-		readingTimePerWord: Duration = .milliseconds(300)
+		readingTimePerWord: Duration = .milliseconds(300),
+		silenceTimeout: Duration = .seconds(5)
 	) {
 		self.services = services
 		self.isMuted = isMuted
 		self.messageDuration = messageDuration
 		self.answerLinger = answerLinger
 		self.readingTimePerWord = readingTimePerWord
+		self.silenceTimeout = silenceTimeout
 	}
 
 	// MARK: - Mode and mute
@@ -76,7 +84,9 @@ public final class BuddyCoordinator {
 	// MARK: - Request lifecycle
 
 	/// Hotkey pressed, or Ask/Draft clicked in the menu bar. Interrupts anything in progress.
-	public func startListening() {
+	/// - Parameter stopsOnSilence: true when started from the menu bar, where no key release ends listening;
+	///   it then stops by itself after `silenceTimeout` without sound.
+	public func startListening(stopsOnSilence: Bool = false) {
 		stopCurrentRequest()
 		guard services.permissions.isGranted(.microphone), services.permissions.isGranted(.speechRecognition) else {
 			show(BuddyMessage("Buddy needs Microphone and Speech Recognition access. Open Setup from the menu bar.", kind: .problem))
@@ -89,6 +99,9 @@ public final class BuddyCoordinator {
 		requestTask = Task { [weak self] in
 			await self?.runRequest()
 		}
+		if stopsOnSilence {
+			startSilenceTimer()
+		}
 	}
 
 	/// Hotkey released, or listening stopped from the menu bar.
@@ -96,6 +109,8 @@ public final class BuddyCoordinator {
 		guard case .listening = state else {
 			return
 		}
+		silenceTask?.cancel()
+		silenceTask = nil
 		state = .thinking
 		let transcriber = services.transcriber
 		Task {
@@ -155,11 +170,17 @@ public final class BuddyCoordinator {
 			try Task.checkCancellation()
 			switch event {
 			case .partial(let text):
+				if text != latest {
+					lastSoundAt = .now
+				}
 				latest = text
 				if case .listening(_, let level) = state {
 					state = .listening(transcript: text, level: level)
 				}
 			case .level(let level):
+				if level >= SpeechFilter.silenceThreshold {
+					lastSoundAt = .now
+				}
 				peakLevel = max(peakLevel, level)
 				if case .listening(let text, _) = state {
 					state = .listening(transcript: text, level: level)
@@ -347,10 +368,31 @@ public final class BuddyCoordinator {
 		return task
 	}
 
+	/// Checks a few times a second; sound or new words reset the countdown.
+	private func startSilenceTimer() {
+		lastSoundAt = .now
+		let timeout = silenceTimeout
+		let interval = min(Duration.milliseconds(250), timeout / 4)
+		silenceTask = Task { [weak self] in
+			while !Task.isCancelled {
+				try? await Task.sleep(for: interval)
+				guard !Task.isCancelled, let self, case .listening = self.state else {
+					return
+				}
+				if ContinuousClock.now - self.lastSoundAt >= timeout {
+					self.stopListening()
+					return
+				}
+			}
+		}
+	}
+
 	private func stopCurrentRequest() {
 		let wasBusy = state.isBusy
 		requestTask?.cancel()
 		requestTask = nil
+		silenceTask?.cancel()
+		silenceTask = nil
 		captureTask?.cancel()
 		captureTask = nil
 		pointTask?.cancel()
