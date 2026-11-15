@@ -333,6 +333,60 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func tabToDraftDuringAskHoldInsertsAndNeverSendsTheScreenshot() async throws {
+		let harness = Harness(finalText: "see you wednesday")
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		try await waitUntil { await harness.screen.captureCount == 1 }
+		buddy.toggleMode()
+		#expect(buddy.mode == .draft)
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.inserter.inserted == ["see you wednesday"])
+		#expect(harness.answers.requestCount == 0)
+		#expect(await harness.speech.spoken.isEmpty)
+	}
+
+	@Test
+	func modeSwitchedWithTabStaysForTheNextRequest() async throws {
+		let harness = Harness(finalText: "see you wednesday")
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.toggleMode()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .idle }
+
+		// The next hold, with no Tab, is still Draft.
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { await harness.inserter.inserted.count == 2 }
+
+		#expect(buddy.mode == .draft)
+		#expect(harness.answers.requestCount == 0)
+	}
+
+	@Test
+	func twoTabsInOneHoldEndInTheStartingMode() async throws {
+		let harness = Harness()
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.toggleMode()
+		buddy.toggleMode()
+		#expect(buddy.mode == .ask)
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(await harness.speech.spoken == ["Click Edit."])
+		#expect(harness.answers.requestCount == 1)
+		#expect(await harness.screen.captureCount == 1)
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
 	func answerErrorShowsItsMessage() async throws {
 		let harness = Harness(answers: FakeAnswerProvider(events: [], error: BuddyError("Groq rate limit. Try again in 12s.")))
 		let buddy = harness.coordinator
@@ -351,6 +405,17 @@ struct BuddyCoordinatorTests {
 		buddy.startListening()
 		buddy.stopListening()
 		try await waitUntil { buddy.state == .message(BuddyMessage("Copied. Paste with ⌘V.", kind: .info)) }
+	}
+
+	@Test
+	func draftWithNoFocusedFieldTellsTheUserInThePill() async throws {
+		let harness = Harness(inserter: FakeInserter(result: .copiedToClipboard(reason: DraftInsertion.noTextFieldMessage)))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("No text field is focused. Copied, paste with ⌘V.", kind: .info)) }
 	}
 
 	@Test
