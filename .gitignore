@@ -13,5 +13,8 @@ xcuserdata/
 .build/
 .swiftpm/
 
+# Code coverage data written when the app or tests run
+*.profraw
+
 # Secrets
 .env

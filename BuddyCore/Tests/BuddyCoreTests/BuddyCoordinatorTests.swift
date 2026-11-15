@@ -88,14 +88,30 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
-	func emptyTranscriptShowsDidNotCatchThat() async throws {
-		let harness = Harness(finalText: "   ")
+	func silentHoldShowsDidNotHearAnything() async throws {
+		let harness = Harness(finalText: "")
 		let buddy = harness.coordinator
 
 		buddy.startListening()
+		try await waitUntil { await harness.transcriber.startCount == 1 }
+		await harness.transcriber.emit(.level(0.01))
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("Didn't hear anything.", kind: .info)) }
+		#expect(await harness.speech.spoken.isEmpty)
+	}
+
+	@Test
+	func fillerOnlyHoldShowsDidNotCatchThatWithoutCallingTheModel() async throws {
+		let harness = Harness(finalText: "um, uh")
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		try await waitUntil { await harness.transcriber.startCount == 1 }
+		await harness.transcriber.emit(.level(0.4))
 		buddy.stopListening()
 		try await waitUntil { buddy.state == .message(BuddyMessage("Didn't catch that. Try again.", kind: .info)) }
 		#expect(await harness.speech.spoken.isEmpty)
+		#expect(await harness.screen.captureCount == 1)
 	}
 
 	@Test
