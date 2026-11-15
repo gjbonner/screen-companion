@@ -98,11 +98,43 @@ final class ControlledAnswerProvider: AnswerProvider {
 	}
 }
 
-struct FakeCleaner: DictationCleaner {
-	var transform: @Sendable (String) -> String = { $0 }
+/// Points at a 20×20 element centred on the guess, mapped to the screen, or nowhere if the guess is outside the screenshot.
+struct FakePointLocator: PointLocator {
+	func locate(_ guess: PointGuess, on screen: CapturedScreen) async -> PointTarget? {
+		CoordinateMapper(screen: screen).screenPoint(forImagePoint: guess.imagePoint).map { point in
+			PointTarget(frame: CGRect(x: point.x - 10, y: point.y - 10, width: 20, height: 20))
+		}
+	}
+}
+
+final class FakeCleaner: DictationCleaner {
+	private let transform: @Sendable (String) -> String
+	private let error: BuddyError?
+	private let delay: Duration?
+	private let calls = Mutex(0)
+
+	/// - Parameters:
+	///   - error: thrown instead of returning text.
+	///   - delay: how long cleaning takes, to act while it's in progress. Cancellation ends it early.
+	init(transform: @escaping @Sendable (String) -> String = { $0 }, error: BuddyError? = nil, delay: Duration? = nil) {
+		self.transform = transform
+		self.error = error
+		self.delay = delay
+	}
+
+	var callCount: Int {
+		calls.withLock { $0 }
+	}
 
 	func clean(_ dictation: String) async throws -> String {
-		transform(dictation)
+		calls.withLock { $0 += 1 }
+		if let delay {
+			try await Task.sleep(for: delay)
+		}
+		if let error {
+			throw error
+		}
+		return transform(dictation)
 	}
 }
 
@@ -231,6 +263,7 @@ struct Harness {
 				screen: screen,
 				secureInput: secureInput,
 				answers: self.answers,
+				pointer: FakePointLocator(),
 				cleaner: cleaner,
 				speech: speech,
 				inserter: inserter,

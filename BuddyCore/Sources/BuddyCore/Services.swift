@@ -90,6 +90,12 @@ public protocol AnswerProvider: Sendable {
 	func answer(question: String, screen: CapturedScreen) -> AsyncThrowingStream<AnswerEvent, any Error>
 }
 
+/// Turns the model's guess into where the mark should point (ADR 0004).
+public protocol PointLocator: Sendable {
+	/// Where to point for `guess` on the screen it was made on, or nil to not point at all.
+	func locate(_ guess: PointGuess, on screen: CapturedScreen) async -> PointTarget?
+}
+
 public protocol DictationCleaner: Sendable {
 	/// Removes filler, fixes punctuation and applies spoken corrections, without adding content.
 	func clean(_ dictation: String) async throws -> String
@@ -107,6 +113,9 @@ public protocol SpeechOutput: Sendable {
 
 public enum InsertionResult: Sendable, Equatable {
 	case inserted
+	/// The text was pasted, but Buddy couldn't tell whether a field took it, so it was also left on the clipboard.
+	/// `note` is shown to the user.
+	case insertedAndCopied(note: String)
 	/// The text couldn't be inserted, so it was left on the clipboard. `reason` is shown to the user.
 	case copiedToClipboard(reason: String)
 }
@@ -129,6 +138,7 @@ public struct BuddyServices: Sendable {
 	public var screen: any ScreenCapturer
 	public var secureInput: any SecureInputDetector
 	public var answers: any AnswerProvider
+	public var pointer: any PointLocator
 	public var cleaner: any DictationCleaner
 	public var speech: any SpeechOutput
 	public var inserter: any TextInserter
@@ -140,6 +150,7 @@ public struct BuddyServices: Sendable {
 		screen: any ScreenCapturer,
 		secureInput: any SecureInputDetector,
 		answers: any AnswerProvider,
+		pointer: any PointLocator,
 		cleaner: any DictationCleaner,
 		speech: any SpeechOutput,
 		inserter: any TextInserter,
@@ -150,6 +161,7 @@ public struct BuddyServices: Sendable {
 		self.screen = screen
 		self.secureInput = secureInput
 		self.answers = answers
+		self.pointer = pointer
 		self.cleaner = cleaner
 		self.speech = speech
 		self.inserter = inserter

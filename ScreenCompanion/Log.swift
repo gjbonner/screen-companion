@@ -11,4 +11,5 @@ enum Log {
 	static let capture = Logger(subsystem: subsystem, category: "capture")
 	static let model = Logger(subsystem: subsystem, category: "model")
 	static let draft = Logger(subsystem: subsystem, category: "draft")
+	static let point = Logger(subsystem: subsystem, category: "point")
 }

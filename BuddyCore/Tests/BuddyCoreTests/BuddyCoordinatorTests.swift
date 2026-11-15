@@ -57,6 +57,34 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func pointIsLocatedOnTheDisplayItWasGuessedOn() async throws {
+		let guess = PointGuess(imagePoint: CGPoint(x: 400, y: 300), label: "Edit button")
+		let harness = Harness(
+			answers: FakeAnswerProvider(events: [.text("Click Edit."), .point(guess)]),
+			speech: FakeSpeech(holdsUntilStopped: true)
+		)
+		let buddy = harness.coordinator
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .answering(_, .some, _) = buddy.state {
+				return true
+			}
+			return false
+		}
+
+		guard case .answering(_, let point?, _) = buddy.state else {
+			Issue.record("Expected an answer with a point")
+			return
+		}
+		#expect(point.displayFrame == FakeScreenCapturer.sample.displayFrame)
+		// The fake screen is 1920×1080 captured at 1600×900, so (400, 300) is (480, 720) in AppKit points.
+		#expect(point.target == PointTarget(frame: CGRect(x: 470, y: 710, width: 20, height: 20)))
+		buddy.cancel()
+	}
+
+	@Test
 	func toggleMutedFlipsTheSetting() {
 		let buddy = Harness().coordinator
 
@@ -166,6 +194,7 @@ struct BuddyCoordinatorTests {
 			screen: harness.screen,
 			secureInput: harness.secureInput,
 			answers: answers,
+			pointer: FakePointLocator(),
 			cleaner: FakeCleaner(),
 			speech: harness.speech,
 			inserter: harness.inserter,
@@ -419,6 +448,67 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func draftPasteTellsTheUserItIsOnTheClipboard() async throws {
+		let harness = Harness(inserter: FakeInserter(result: .insertedAndCopied(note: DraftInsertion.copiedToClipboardMessage)))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("Copied to clipboard", kind: .info)) }
+	}
+
+	@Test
+	func draftCleanupErrorShowsItsMessageAndInsertsNothing() async throws {
+		let harness = Harness(cleaner: FakeCleaner(error: BuddyError("No internet connection.")))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("No internet connection.", kind: .problem)) }
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
+	func escapeWhileDraftIsCleaningUpInsertsNothing() async throws {
+		let cleaner = FakeCleaner(delay: .seconds(10))
+		let harness = Harness(cleaner: cleaner)
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { cleaner.callCount == 1 }
+		buddy.cancel()
+
+		#expect(buddy.state == .idle)
+		// Give a cancelled-but-still-running request time to insert, if it wrongly would.
+		try await Task.sleep(for: .milliseconds(100))
+		#expect(buddy.state == .idle)
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
+	func draftWithoutAnAPIKeyShowsProblemAndNeverCleans() async throws {
+		let cleaner = FakeCleaner()
+		let harness = Harness(cleaner: cleaner, apiKeys: FakeAPIKeys(key: nil))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .message(let message) = buddy.state {
+				return message.kind == .problem && message.text.contains("API key")
+			}
+			return false
+		}
+		#expect(cleaner.callCount == 0)
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
 	func draftInsertsNothingWhenCleanerReturnsEmpty() async throws {
 		let harness = Harness(finalText: "anything", cleaner: FakeCleaner(transform: { _ in "" }))
 		let buddy = harness.coordinator
@@ -440,6 +530,7 @@ struct BuddyCoordinatorTests {
 				screen: FakeScreenCapturer(),
 				secureInput: FakeSecureInput(),
 				answers: FakeAnswerProvider(),
+				pointer: FakePointLocator(),
 				cleaner: FakeCleaner(),
 				speech: FakeSpeech(),
 				inserter: FakeInserter(),
