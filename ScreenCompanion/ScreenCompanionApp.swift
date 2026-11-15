@@ -8,9 +8,11 @@ struct ScreenCompanionApp: App {
 
 	var body: some Scene {
 		MenuBarExtra {
-			MenuBarView(coordinator: appDelegate.coordinator)
+			MenuBarView(coordinator: appDelegate.coordinator, setup: appDelegate.setup) {
+				appDelegate.showSetup()
+			}
 		} label: {
-			MenuBarIcon(coordinator: appDelegate.coordinator)
+			MenuBarIcon(coordinator: appDelegate.coordinator, setup: appDelegate.setup)
 		}
 		.menuBarExtraStyle(.window)
 	}
@@ -25,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		services: .live,
 		isMuted: UserDefaults.standard.bool(forKey: AppDelegate.mutedDefaultsKey)
 	)
+	let setup = SetupMonitor()
+	private lazy var onboarding = OnboardingWindowController(setup: setup)
 	private var pill: PillPanelController?
 	private var overlay: PointOverlayController?
 	private var hotkeys: HotkeyMonitor?
@@ -48,11 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		monitor.start()
 		hotkeys = monitor
 
-		// Until onboarding exists, ask macOS to show its Accessibility prompt once at launch.
-		if !AXIsProcessTrusted() {
-			let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-			_ = AXIsProcessTrustedWithOptions(options)
+		if !setup.checklist.isComplete {
+			showSetup()
 		}
+	}
+
+	func showSetup() {
+		onboarding.show()
 	}
 
 	/// Saves the mute setting whenever it changes, from the menu or the pill.

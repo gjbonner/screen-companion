@@ -54,6 +54,23 @@ struct GroqClient: AnswerProvider, DictationCleaner {
 		}
 	}
 
+	/// Checks a key with one request that uses no tokens (listing models). Throws a user-facing error if it's rejected.
+	static func validate(key: String, session: URLSession = .shared) async throws {
+		var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!, timeoutInterval: 15)
+		request.setValue("Bearer \(key.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+		do {
+			let (data, response) = try await session.data(for: request)
+			guard let http = response as? HTTPURLResponse else {
+				throw BuddyError("Groq sent an unexpected response. Try again.")
+			}
+			guard http.statusCode == 200 else {
+				throw httpError(status: http.statusCode, retryAfter: http.value(forHTTPHeaderField: "retry-after"), body: String(decoding: data, as: UTF8.self))
+			}
+		} catch {
+			throw userFacing(error)
+		}
+	}
+
 	// MARK: - Requests
 
 	static let cleanupPrompt = """
