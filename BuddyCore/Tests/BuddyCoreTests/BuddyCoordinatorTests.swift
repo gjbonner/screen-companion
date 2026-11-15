@@ -41,6 +41,24 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func askReportsTimingOnceWhenTheFirstSentenceIsReady() async throws {
+		let harness = Harness(answers: FakeAnswerProvider(events: [.text("First part. "), .text("Second part.")]))
+		let buddy = harness.coordinator
+		var timings: [AskTiming] = []
+		buddy.onAskTiming = { timings.append($0) }
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .idle }
+
+		#expect(timings.count == 1)
+		let timing = try #require(timings.first)
+		#expect(timing.transcript <= timing.screen)
+		#expect(timing.screen <= timing.firstToken)
+		#expect(timing.firstToken <= timing.firstSentence)
+	}
+
+	@Test
 	func answerCardTracksHowMuchHasBeenSpoken() async throws {
 		let harness = Harness(
 			answers: FakeAnswerProvider(events: [.text("First part. Second part.")]),

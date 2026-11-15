@@ -41,6 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			ScreenTextFinder.warmUp()
 		}
 		rememberMuteSetting()
+		#if DEBUG
+		coordinator.onAskTiming = { timing in
+			Log.timing.info("""
+				Ask after release: transcript \(Log.milliseconds(timing.transcript)) ms, \
+				screen \(Log.milliseconds(timing.screen)) ms, \
+				first token \(Log.milliseconds(timing.firstToken)) ms, \
+				first sentence to voice \(Log.milliseconds(timing.firstSentence)) ms
+				""")
+		}
+		#endif
 
 		let monitor = HotkeyMonitor(
 			hotkey: hotkey.choice,
