@@ -10,4 +10,5 @@ enum Log {
 	static let speech = Logger(subsystem: subsystem, category: "speech")
 	static let capture = Logger(subsystem: subsystem, category: "capture")
 	static let model = Logger(subsystem: subsystem, category: "model")
+	static let draft = Logger(subsystem: subsystem, category: "draft")
 }

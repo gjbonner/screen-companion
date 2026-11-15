@@ -9,13 +9,16 @@ extension BuddyServices {
 	@MainActor
 	static var live: BuddyServices {
 		let apiKeys = KeychainAPIKeyStore()
+		let groq = GroqClient(apiKeys: apiKeys)
 		var services = placeholders
 		services.permissions = SystemPermissionChecker()
 		services.transcriber = SpeechRecognizerTranscriber()
 		services.screen = ScreenCaptureKitCapturer()
 		services.secureInput = SystemSecureInputDetector()
-		services.answers = GroqClient(apiKeys: apiKeys)
+		services.answers = groq
+		services.cleaner = groq
 		services.speech = SystemSpeechOutput()
+		services.inserter = ClipboardTextInserter()
 		services.apiKeys = apiKeys
 		return services
 	}
