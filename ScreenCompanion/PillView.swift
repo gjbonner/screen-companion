@@ -16,7 +16,8 @@ struct PillView: View {
 					.padding(.vertical, 10)
 					.frame(maxWidth: 420)
 					.fixedSize(horizontal: false, vertical: true)
-					.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+					.background(Theme.pillBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+					.environment(\.colorScheme, .dark)
 					.overlay(
 						RoundedRectangle(cornerRadius: 20, style: .continuous)
 							.strokeBorder(.white.opacity(0.12))
