@@ -107,6 +107,9 @@ public protocol SpeechOutput: Sendable {
 
 public enum InsertionResult: Sendable, Equatable {
 	case inserted
+	/// The text was pasted, but Buddy couldn't tell whether a field took it, so it was also left on the clipboard.
+	/// `note` is shown to the user.
+	case insertedAndCopied(note: String)
 	/// The text couldn't be inserted, so it was left on the clipboard. `reason` is shown to the user.
 	case copiedToClipboard(reason: String)
 }

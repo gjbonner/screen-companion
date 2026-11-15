@@ -1,6 +1,6 @@
 # Insert Draft text by clipboard paste
 
-Draft text is inserted by placing it on the clipboard and sending ⌘V, then restoring the previous clipboard contents after about 400 ms. Paste works in native apps, browsers and Electron apps alike, and one ⌘Z undoes the whole insertion.
+Draft text is inserted by placing it on the clipboard and sending ⌘V. The text stays on the clipboard afterwards. Paste works in native apps, browsers and Electron apps alike, and one ⌘Z undoes the whole insertion.
 
 ## Considered Options
 
@@ -9,4 +9,4 @@ Draft text is inserted by placing it on the clipboard and sending ⌘V, then res
 
 ## Consequences
 
-The clipboard is temporarily replaced, so Buddy snapshots every item and format, marks its own content as transient so clipboard managers skip it, and restores afterwards. When a password field has focus (Secure Input) or no text field has focus, the text is left on the clipboard with a "Copied" notice instead.
+Whatever was on the clipboard before is replaced. Restoring it after the paste was built first and dropped: Chrome reports no focused element even when a field is focused, so Buddy can't tell whether a paste landed, and restoring would lose the dictation whenever it didn't. Leaving the text on the clipboard means the user can always paste it themselves, and the pill says "Copied to clipboard". When a password field has focus (Secure Input) or an element that clearly isn't text has focus, Buddy doesn't paste and says why.

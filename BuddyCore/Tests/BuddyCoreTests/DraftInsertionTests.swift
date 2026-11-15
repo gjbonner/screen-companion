@@ -9,13 +9,19 @@ struct DraftInsertionTests {
 
 	@Test
 	func unclearFocusStillPastes() {
-		// Browsers and Electron apps often can't say what's focused; a paste there is harmless if nothing takes it.
+		// Browsers and Electron apps often can't say what's focused. The paste may land or go nowhere;
+		// the text is on the clipboard either way.
 		#expect(Self.delivery(focus: .unknown) == .paste)
 	}
 
 	@Test
 	func nonTextFocusCopies() {
 		#expect(Self.delivery(focus: .notText) == .copy(reason: DraftInsertion.noTextFieldMessage))
+	}
+
+	@Test
+	func noTextFieldMessageSaysSo() {
+		#expect(DraftInsertion.noTextFieldMessage == "No text field is focused. Copied, paste with ⌘V.")
 	}
 
 	@Test(arguments: [FocusedInput.text, .notText, .unknown])
@@ -69,18 +75,19 @@ struct DraftInsertionTests {
 		#expect(DraftInsertion.focusedInput(.buddyItself) == .notText)
 	}
 
-	// Chrome with no field clicked reports no focused element. Pasting there went nowhere and the clipboard
-	// was then restored, so the dictation was lost; it must stay on the clipboard instead.
+	// Chrome reports no focused element (AXError.noValue) whether or not a field is focused. Treating that as
+	// "nothing focused" stopped Draft from ever pasting into Chrome.
 
 	@Test
-	func nothingFocusedIsNotText() {
-		#expect(DraftInsertion.focusedInput(.nothingFocused) == .notText)
+	func nothingFocusedIsUnclearBecauseChromeSaysItWithAFieldFocused() {
+		#expect(DraftInsertion.focusedInput(.nothingFocused) == .unknown)
 	}
 
 	@Test
-	func nothingFocusedCopiesAndSaysNoTextFieldIsFocused() {
+	func nothingFocusedStillPastes() {
+		// Pastes into a focused Chrome field; if nothing was focused, the user can paste it from the clipboard.
 		let delivery = Self.delivery(focus: DraftInsertion.focusedInput(.nothingFocused))
-		#expect(delivery == .copy(reason: "No text field is focused. Copied, paste with ⌘V."))
+		#expect(delivery == .paste)
 	}
 
 	private static func delivery(

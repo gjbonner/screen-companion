@@ -11,7 +11,7 @@ import Testing
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["BUDDY_INTEGRATION"] == "1"))
 struct DraftInsertionIntegrationTests {
 	@Test
-	func draftTextIsPastedAndTheClipboardIsRestored() async throws {
+	func draftTextIsPastedAndLeftOnTheClipboard() async throws {
 		try #require(AXIsProcessTrusted(), "Grant Accessibility to ScreenCompanion first.")
 
 		let pasteboard = NSPasteboard.general
@@ -44,12 +44,12 @@ struct DraftInsertionIntegrationTests {
 		try await Task.sleep(for: .milliseconds(300))
 
 		// The test runs inside the app, so the frontmost process is Buddy's own; allow pasting into it here.
-		let inserter = ClipboardTextInserter(restoreDelay: .milliseconds(400), ownProcess: nil)
+		let inserter = ClipboardTextInserter(ownProcess: nil)
 		let result = await inserter.insert("Hi Greg, the budget looks right.")
-		#expect(result == .inserted)
+		#expect(result == .insertedAndCopied(note: "Copied to clipboard"))
 
-		try await Task.sleep(for: .milliseconds(800))
+		try await Task.sleep(for: .milliseconds(500))
 		#expect(textView.string == "Hi Greg, the budget looks right.")
-		#expect(pasteboard.string(forType: .string) == "What was on the clipboard")
+		#expect(pasteboard.string(forType: .string) == "Hi Greg, the budget looks right.")
 	}
 }

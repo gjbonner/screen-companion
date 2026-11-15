@@ -419,6 +419,17 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func draftPasteTellsTheUserItIsOnTheClipboard() async throws {
+		let harness = Harness(inserter: FakeInserter(result: .insertedAndCopied(note: DraftInsertion.copiedToClipboardMessage)))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("Copied to clipboard", kind: .info)) }
+	}
+
+	@Test
 	func draftInsertsNothingWhenCleanerReturnsEmpty() async throws {
 		let harness = Harness(finalText: "anything", cleaner: FakeCleaner(transform: { _ in "" }))
 		let buddy = harness.coordinator

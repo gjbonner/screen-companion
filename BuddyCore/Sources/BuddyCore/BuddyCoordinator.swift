@@ -267,6 +267,8 @@ public final class BuddyCoordinator {
 		switch result {
 		case .inserted:
 			state = .idle
+		case .insertedAndCopied(let note):
+			show(BuddyMessage(note, kind: .info))
 		case .copiedToClipboard(let reason):
 			show(BuddyMessage(reason, kind: .info))
 		}

@@ -8,21 +8,23 @@ public enum FocusedInput: Sendable, Equatable {
 	case unknown
 }
 
-/// How Draft text reaches the user (ADR 0006).
+/// How Draft text reaches the user (ADR 0006). Either way, the text is left on the clipboard.
 public enum DraftDelivery: Sendable, Equatable {
-	/// Paste into the focused app with ⌘V, then restore the clipboard.
+	/// Paste into the focused app with ⌘V.
 	case paste
-	/// Leave the text on the clipboard and show `reason`.
+	/// Don't paste; just leave the text on the clipboard and show `reason`.
 	case copy(reason: String)
 }
 
-/// Decides whether Draft text is pasted or left on the clipboard.
+/// Decides whether Draft text is pasted as well as left on the clipboard.
 ///
-/// Paste is the default: a paste where no text field is listening does nothing, so only a focus that is
-/// clearly not text falls back to the clipboard. Browsers and Electron apps often report nothing useful
-/// about focus, and they are where most Draft text goes.
+/// Paste is the default: only a focus that is clearly not text skips it. Browsers and Electron apps often report
+/// nothing useful about focus (Chrome says nothing is focused even when a field is), and they are where most Draft
+/// text goes. The text always stays on the clipboard, so a paste that went nowhere isn't lost.
 public enum DraftInsertion {
 	public static let copiedMessage = "Copied. Paste with ⌘V."
+	/// Shown after every paste, since the text is left on the clipboard too.
+	public static let copiedToClipboardMessage = "Copied to clipboard"
 	public static let noTextFieldMessage = "No text field is focused. Copied, paste with ⌘V."
 	public static let secureInputMessage = "A password field is active, so Buddy didn't type. Copied, paste with ⌘V."
 	public static let accessibilityMessage = "Copied. Allow Accessibility in Setup so Buddy can paste for you."
@@ -72,10 +74,11 @@ public enum DraftInsertion {
 				return .unknown
 			}
 			return .notText
-		case .nothingFocused, .buddyItself:
-			// A paste would go nowhere, or into Buddy.
+		case .buddyItself:
+			// A paste would go into Buddy.
 			return .notText
-		case .unavailable:
+		case .nothingFocused, .unavailable:
+			// Chrome reports nothing focused even with a field focused, so this can't be trusted.
 			return .unknown
 		}
 	}
@@ -85,7 +88,7 @@ public enum DraftInsertion {
 public enum FocusReport: Sendable, Equatable {
 	/// An element has focus. `role` is nil if it couldn't be read.
 	case element(role: String?)
-	/// The app says nothing has focus (`AXError.noValue`), e.g. Chrome with no field clicked.
+	/// The app says nothing has focus (`AXError.noValue`). Chrome says this even when a field is focused.
 	case nothingFocused
 	/// Buddy itself is frontmost, e.g. after Draft was started from the menu bar.
 	case buddyItself
