@@ -430,6 +430,56 @@ struct BuddyCoordinatorTests {
 	}
 
 	@Test
+	func draftCleanupErrorShowsItsMessageAndInsertsNothing() async throws {
+		let harness = Harness(cleaner: FakeCleaner(error: BuddyError("No internet connection.")))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { buddy.state == .message(BuddyMessage("No internet connection.", kind: .problem)) }
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
+	func escapeWhileDraftIsCleaningUpInsertsNothing() async throws {
+		let cleaner = FakeCleaner(delay: .seconds(10))
+		let harness = Harness(cleaner: cleaner)
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil { cleaner.callCount == 1 }
+		buddy.cancel()
+
+		#expect(buddy.state == .idle)
+		// Give a cancelled-but-still-running request time to insert, if it wrongly would.
+		try await Task.sleep(for: .milliseconds(100))
+		#expect(buddy.state == .idle)
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
+	func draftWithoutAnAPIKeyShowsProblemAndNeverCleans() async throws {
+		let cleaner = FakeCleaner()
+		let harness = Harness(cleaner: cleaner, apiKeys: FakeAPIKeys(key: nil))
+		let buddy = harness.coordinator
+		buddy.setMode(.draft)
+
+		buddy.startListening()
+		buddy.stopListening()
+		try await waitUntil {
+			if case .message(let message) = buddy.state {
+				return message.kind == .problem && message.text.contains("API key")
+			}
+			return false
+		}
+		#expect(cleaner.callCount == 0)
+		#expect(await harness.inserter.inserted.isEmpty)
+	}
+
+	@Test
 	func draftInsertsNothingWhenCleanerReturnsEmpty() async throws {
 		let harness = Harness(finalText: "anything", cleaner: FakeCleaner(transform: { _ in "" }))
 		let buddy = harness.coordinator

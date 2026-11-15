@@ -98,11 +98,34 @@ final class ControlledAnswerProvider: AnswerProvider {
 	}
 }
 
-struct FakeCleaner: DictationCleaner {
-	var transform: @Sendable (String) -> String = { $0 }
+final class FakeCleaner: DictationCleaner {
+	private let transform: @Sendable (String) -> String
+	private let error: BuddyError?
+	private let delay: Duration?
+	private let calls = Mutex(0)
+
+	/// - Parameters:
+	///   - error: thrown instead of returning text.
+	///   - delay: how long cleaning takes, to act while it's in progress. Cancellation ends it early.
+	init(transform: @escaping @Sendable (String) -> String = { $0 }, error: BuddyError? = nil, delay: Duration? = nil) {
+		self.transform = transform
+		self.error = error
+		self.delay = delay
+	}
+
+	var callCount: Int {
+		calls.withLock { $0 }
+	}
 
 	func clean(_ dictation: String) async throws -> String {
-		transform(dictation)
+		calls.withLock { $0 += 1 }
+		if let delay {
+			try await Task.sleep(for: delay)
+		}
+		if let error {
+			throw error
+		}
+		return transform(dictation)
 	}
 }
 
