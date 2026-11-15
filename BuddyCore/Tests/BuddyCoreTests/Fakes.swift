@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Synchronization
 import Testing
 @testable import BuddyCore
 
@@ -83,6 +84,20 @@ struct FakeAnswerProvider: AnswerProvider {
 	}
 }
 
+/// An answer stream the test feeds by hand, to act while an answer is still arriving.
+final class ControlledAnswerProvider: AnswerProvider {
+	let stream: AsyncThrowingStream<AnswerEvent, any Error>
+	let continuation: AsyncThrowingStream<AnswerEvent, any Error>.Continuation
+
+	init() {
+		(stream, continuation) = AsyncThrowingStream.makeStream(of: AnswerEvent.self, throwing: (any Error).self)
+	}
+
+	func answer(question: String, screen: CapturedScreen) -> AsyncThrowingStream<AnswerEvent, any Error> {
+		stream
+	}
+}
+
 struct FakeCleaner: DictationCleaner {
 	var transform: @Sendable (String) -> String = { $0 }
 
@@ -147,10 +162,48 @@ struct FakeAPIKeys: APIKeyStore {
 	}
 }
 
+/// Secure Input (a password field) that a test can switch on and off.
+final class FakeSecureInput: SecureInputDetector {
+	private let active: Mutex<Bool>
+
+	init(active: Bool = false) {
+		self.active = Mutex(active)
+	}
+
+	func set(_ isActive: Bool) {
+		active.withLock { $0 = isActive }
+	}
+
+	func isSecureInputActive() -> Bool {
+		active.withLock { $0 }
+	}
+}
+
+/// Wraps an answer provider and counts requests, to prove whether anything was sent to the model.
+final class CountingAnswerProvider: AnswerProvider {
+	private let wrapped: any AnswerProvider
+	private let count = Mutex(0)
+
+	init(_ wrapped: any AnswerProvider) {
+		self.wrapped = wrapped
+	}
+
+	var requestCount: Int {
+		count.withLock { $0 }
+	}
+
+	func answer(question: String, screen: CapturedScreen) -> AsyncThrowingStream<AnswerEvent, any Error> {
+		count.withLock { $0 += 1 }
+		return wrapped.answer(question: question, screen: screen)
+	}
+}
+
 struct Harness {
 	let coordinator: BuddyCoordinator
 	let transcriber: FakeTranscriber
 	let screen: FakeScreenCapturer
+	let secureInput: FakeSecureInput
+	let answers: CountingAnswerProvider
 	let speech: FakeSpeech
 	let inserter: FakeInserter
 
@@ -158,6 +211,7 @@ struct Harness {
 	init(
 		finalText: String = "where is the budget",
 		permissions: FakePermissions = FakePermissions(),
+		secureInput: FakeSecureInput = FakeSecureInput(),
 		answers: FakeAnswerProvider = FakeAnswerProvider(),
 		cleaner: FakeCleaner = FakeCleaner(),
 		speech: FakeSpeech = FakeSpeech(),
@@ -166,6 +220,8 @@ struct Harness {
 	) {
 		transcriber = FakeTranscriber(finalText: finalText)
 		screen = FakeScreenCapturer()
+		self.secureInput = secureInput
+		self.answers = CountingAnswerProvider(answers)
 		self.speech = speech
 		self.inserter = inserter
 		coordinator = BuddyCoordinator(
@@ -173,13 +229,16 @@ struct Harness {
 				permissions: permissions,
 				transcriber: transcriber,
 				screen: screen,
-				answers: answers,
+				secureInput: secureInput,
+				answers: self.answers,
 				cleaner: cleaner,
 				speech: speech,
 				inserter: inserter,
 				apiKeys: apiKeys
 			),
-			messageDuration: .seconds(60)
+			messageDuration: .seconds(60),
+			answerLinger: .zero,
+			readingTimePerWord: .zero
 		)
 	}
 }

@@ -4,6 +4,8 @@ import SwiftUI
 /// The pill: shows the mode, mic level and live transcript while listening, then progress, answers and notices.
 struct PillView: View {
 	let coordinator: BuddyCoordinator
+	/// Reports where the mute button is, so the panel can accept clicks there and nowhere else.
+	var onMuteButtonFrame: (CGRect?) -> Void = { _ in }
 
 	var body: some View {
 		VStack {
@@ -27,6 +29,18 @@ struct PillView: View {
 		.padding(.bottom, 8)
 		.animation(.spring(duration: 0.3), value: coordinator.state)
 		.animation(.spring(duration: 0.25), value: coordinator.mode)
+		.onChange(of: isAnswering) {
+			if !isAnswering {
+				onMuteButtonFrame(nil)
+			}
+		}
+	}
+
+	private var isAnswering: Bool {
+		if case .answering = coordinator.state {
+			return true
+		}
+		return false
 	}
 
 	@ViewBuilder
@@ -63,13 +77,18 @@ struct PillView: View {
 					.frame(maxWidth: .infinity, alignment: .leading)
 			}
 
-		case .answering(let text, _):
+		case .answering(let text, _, let spokenLength):
 			HStack(alignment: .top, spacing: 10) {
 				ModeBadge(mode: .ask)
-				Text(text)
-					.font(.callout)
-					.lineLimit(4)
-					.frame(maxWidth: .infinity, alignment: .leading)
+				AnswerCard(text: text, spokenLength: coordinator.isMuted ? text.count : spokenLength)
+				MuteButton(isMuted: coordinator.isMuted) {
+					coordinator.toggleMuted()
+				}
+				.onGeometryChange(for: CGRect.self) { proxy in
+					proxy.frame(in: .global)
+				} action: { frame in
+					onMuteButtonFrame(frame)
+				}
 			}
 
 		case .message(let message):
@@ -81,6 +100,75 @@ struct PillView: View {
 					.frame(maxWidth: .infinity, alignment: .leading)
 			}
 		}
+	}
+}
+
+/// Turns spoken answers on and off. The only clickable spot in the pill.
+private struct MuteButton: View {
+	let isMuted: Bool
+	let action: () -> Void
+
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+				.font(.callout)
+				.foregroundStyle(isMuted ? Color.secondary : Theme.accent)
+				.frame(width: 28, height: 28)
+				.contentShape(Circle())
+				.contentTransition(.symbolEffect(.replace))
+		}
+		.buttonStyle(.plain)
+		.help(isMuted ? "Speak answers" : "Mute answers")
+		.accessibilityLabel(isMuted ? "Unmute answers" : "Mute answers")
+	}
+}
+
+/// The answer text: what has been spoken in full color, the rest dimmed.
+/// Long answers scroll in step with speech instead of growing over the screen.
+private struct AnswerCard: View {
+	let text: String
+	let spokenLength: Int
+
+	/// About ten lines. Normal answers (one to three sentences) fit without scrolling.
+	private static let maxHeight: CGFloat = 200
+
+	@State private var position = ScrollPosition(y: 0)
+	@State private var contentHeight: CGFloat = 0
+
+	var body: some View {
+		ScrollView(.vertical, showsIndicators: false) {
+			(Text(spoken).foregroundStyle(.primary) + Text(unspoken).foregroundStyle(.secondary))
+				.font(.callout)
+				.fixedSize(horizontal: false, vertical: true)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.vertical, 4)
+				.onGeometryChange(for: CGFloat.self) { proxy in
+					proxy.size.height
+				} action: { height in
+					contentHeight = height
+				}
+		}
+		.frame(height: min(max(contentHeight, 1), Self.maxHeight))
+		.scrollPosition($position)
+		.onChange(of: spokenLength) {
+			guard contentHeight > Self.maxHeight, !text.isEmpty else {
+				return
+			}
+			// Keep the part being spoken in view, a little below the top.
+			let fraction = Double(spokenLength) / Double(text.count)
+			let target = max(0, min(contentHeight * fraction - Self.maxHeight * 0.6, contentHeight - Self.maxHeight))
+			withAnimation(.easeInOut(duration: 0.4)) {
+				position.scrollTo(y: target)
+			}
+		}
+	}
+
+	private var spoken: String {
+		String(text.prefix(spokenLength))
+	}
+
+	private var unspoken: String {
+		String(text.dropFirst(spokenLength))
 	}
 }
 

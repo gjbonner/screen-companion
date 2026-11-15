@@ -8,21 +8,39 @@ import Observation
 public final class BuddyCoordinator {
 	public private(set) var state: BuddyState = .idle
 	public private(set) var mode: BuddyMode = .ask
+	/// When true, Ask answers are shown but not spoken. Takes effect immediately, even mid-answer.
+	public private(set) var isMuted: Bool
 
 	@ObservationIgnored private let services: BuddyServices
 	@ObservationIgnored private let messageDuration: Duration
+	@ObservationIgnored private let answerLinger: Duration
+	@ObservationIgnored private let readingTimePerWord: Duration
 	@ObservationIgnored private var requestTask: Task<Void, Never>?
 	@ObservationIgnored private var captureTask: Task<CapturedScreen, any Error>?
 	@ObservationIgnored private var messageTask: Task<Void, Never>?
 	/// Stopping the previous request's transcriber and speech; a new request waits for this first.
 	@ObservationIgnored private var cleanupTask: Task<Void, Never>?
 
-	public init(services: BuddyServices, messageDuration: Duration = .seconds(3)) {
+	/// - Parameters:
+	///   - isMuted: whether answers start muted (the app restores the user's last choice).
+	///   - messageDuration: how long a notice stays in the pill.
+	///   - answerLinger: how long the answer card stays after Buddy finishes speaking.
+	///   - readingTimePerWord: when muted, the card stays this long per word so there's time to read it.
+	public init(
+		services: BuddyServices,
+		isMuted: Bool = false,
+		messageDuration: Duration = .seconds(3),
+		answerLinger: Duration = .seconds(2),
+		readingTimePerWord: Duration = .milliseconds(300)
+	) {
 		self.services = services
+		self.isMuted = isMuted
 		self.messageDuration = messageDuration
+		self.answerLinger = answerLinger
+		self.readingTimePerWord = readingTimePerWord
 	}
 
-	// MARK: - Mode
+	// MARK: - Mode and mute
 
 	public func setMode(_ newMode: BuddyMode) {
 		mode = newMode
@@ -34,6 +52,24 @@ public final class BuddyCoordinator {
 
 	public func toggleMode() {
 		setMode(mode.toggled)
+	}
+
+	public func setMuted(_ muted: Bool) {
+		guard muted != isMuted else {
+			return
+		}
+		isMuted = muted
+		if muted {
+			// Stop the sentence being spoken now; later sentences are skipped while muted.
+			let speech = services.speech
+			Task {
+				await speech.stop()
+			}
+		}
+	}
+
+	public func toggleMuted() {
+		setMuted(!isMuted)
 	}
 
 	// MARK: - Request lifecycle
@@ -136,32 +172,86 @@ public final class BuddyCoordinator {
 
 	private func ask(_ question: String) async throws {
 		guard services.permissions.isGranted(.screenRecording) else {
-			throw BuddyError("Buddy can't see your screen. It needs Screen Recording access. Open Setup from the menu bar.")
+			throw BuddyError(Self.screenRecordingMessage)
 		}
 		try requireAPIKey()
+		// Never send the screen while a password field is active, even if it was captured earlier.
+		guard !services.secureInput.isSecureInputActive() else {
+			captureTask?.cancel()
+			captureTask = nil
+			throw BuddyError(Self.secureInputMessage)
+		}
 		let capture = captureTask ?? startCapture()
 		let screen = try await capture.value
 		try Task.checkCancellation()
+		guard !services.secureInput.isSecureInputActive() else {
+			throw BuddyError(Self.secureInputMessage)
+		}
 
+		// Sentences are spoken as soon as they're complete, while the rest of the answer is still arriving.
+		let (sentences, sentenceQueue) = AsyncStream.makeStream(of: SpokenSentence.self)
+		async let speaking: Void = speak(sentences)
+
+		var splitter = SentenceSplitter()
 		var text = ""
 		var point: PointGuess?
-		for try await event in services.answers.answer(question: question, screen: screen) {
-			try Task.checkCancellation()
-			switch event {
-			case .text(let chunk):
-				text += chunk
-			case .point(let guess):
-				point = guess
+		var searchOffset = 0
+
+		func queue(_ completed: [String]) {
+			for sentence in completed {
+				let end = Self.endOffset(of: sentence, in: text, from: searchOffset)
+				searchOffset = end
+				sentenceQueue.yield(SpokenSentence(text: sentence, endOffset: end))
 			}
-			state = .answering(text: text, point: point)
 		}
-		let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !answer.isEmpty else {
+
+		do {
+			for try await event in services.answers.answer(question: question, screen: screen) {
+				try Task.checkCancellation()
+				switch event {
+				case .text(let chunk):
+					text += chunk
+					queue(splitter.add(chunk))
+				case .point(let guess):
+					point = guess
+				}
+				state = .answering(text: text, point: point, spokenLength: currentSpokenLength)
+			}
+			queue(splitter.finish())
+		} catch {
+			sentenceQueue.finish()
+			throw error
+		}
+		sentenceQueue.finish()
+
+		guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
 			throw BuddyError("No answer came back. Try again.")
 		}
-		await services.speech.speak(answer)
+		await speaking
 		try Task.checkCancellation()
+		// Muted answers stay up long enough to read; spoken ones only briefly after the voice ends.
+		try await Task.sleep(for: isMuted ? readingTime(for: text) : answerLinger)
 		state = .idle
+	}
+
+	private func speak(_ sentences: AsyncStream<SpokenSentence>) async {
+		for await sentence in sentences {
+			guard !Task.isCancelled else {
+				return
+			}
+			if case .answering(let text, let point, _) = state {
+				state = .answering(text: text, point: point, spokenLength: sentence.endOffset)
+			}
+			guard !isMuted else {
+				continue
+			}
+			await services.speech.speak(sentence.text)
+		}
+	}
+
+	private func readingTime(for text: String) -> Duration {
+		let words = text.split(whereSeparator: \.isWhitespace).count
+		return max(answerLinger, readingTimePerWord * words)
 	}
 
 	private func draft(_ dictation: String) async throws {
@@ -184,17 +274,47 @@ public final class BuddyCoordinator {
 
 	// MARK: - Helpers
 
+	private struct SpokenSentence: Sendable {
+		var text: String
+		/// Character offset in the answer text where this sentence ends.
+		var endOffset: Int
+	}
+
+	private var currentSpokenLength: Int {
+		if case .answering(_, _, let spokenLength) = state {
+			return spokenLength
+		}
+		return 0
+	}
+
+	/// Where `sentence` ends in `text`, searching from `offset`. Falls back to the end of the text.
+	static func endOffset(of sentence: String, in text: String, from offset: Int) -> Int {
+		let start = text.index(text.startIndex, offsetBy: min(offset, text.count))
+		guard let range = text.range(of: sentence, range: start..<text.endIndex) else {
+			return text.count
+		}
+		return text.distance(from: text.startIndex, to: range.upperBound)
+	}
+
 	private func requireAPIKey() throws {
 		guard let key = services.apiKeys.apiKey(), !key.isEmpty else {
 			throw BuddyError("Buddy needs a Groq API key. Open Setup from the menu bar.")
 		}
 	}
 
+	public nonisolated static let screenRecordingMessage = "Buddy needs Screen Recording to take screenshots. Allow it in System Settings, then relaunch."
+	public nonisolated static let secureInputMessage = "Buddy won't look at your screen while a password field is active."
+
 	@discardableResult
 	private func startCapture() -> Task<CapturedScreen, any Error> {
 		let screen = services.screen
+		let secureInput = services.secureInput
 		let task = Task {
-			try await screen.captureDisplayUnderCursor()
+			// Never capture while a password field is active.
+			guard !secureInput.isSecureInputActive() else {
+				throw BuddyError(BuddyCoordinator.secureInputMessage)
+			}
+			return try await screen.captureDisplayUnderCursor()
 		}
 		captureTask = task
 		return task
