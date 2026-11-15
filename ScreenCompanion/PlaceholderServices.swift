@@ -5,6 +5,14 @@ import Foundation
 // with the real implementation, and this file is deleted once none are left.
 
 extension BuddyServices {
+	/// What the app runs with: real implementations where they exist, placeholders for the rest.
+	static var live: BuddyServices {
+		var services = placeholders
+		services.permissions = SystemPermissionChecker()
+		services.transcriber = SpeechRecognizerTranscriber()
+		return services
+	}
+
 	static var placeholders: BuddyServices {
 		BuddyServices(
 			permissions: AssumeGrantedPermissions(),

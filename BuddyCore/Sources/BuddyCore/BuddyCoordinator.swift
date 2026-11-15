@@ -79,9 +79,16 @@ public final class BuddyCoordinator {
 
 	private func runRequest() async {
 		do {
-			let transcript = try await transcribe().trimmingCharacters(in: .whitespacesAndNewlines)
+			let heard = try await transcribe()
 			try Task.checkCancellation()
-			guard !transcript.isEmpty else {
+			let transcript: String
+			switch SpeechFilter.classify(transcript: heard.transcript, peakLevel: heard.peakLevel) {
+			case .speech(let text):
+				transcript = text
+			case .silence:
+				show(BuddyMessage("Didn't hear anything.", kind: .info))
+				return
+			case .nothingUsable:
 				show(BuddyMessage("Didn't catch that. Try again.", kind: .info))
 				return
 			}
@@ -101,11 +108,12 @@ public final class BuddyCoordinator {
 		}
 	}
 
-	private func transcribe() async throws -> String {
+	private func transcribe() async throws -> (transcript: String, peakLevel: Float) {
 		await cleanupTask?.value
 		try Task.checkCancellation()
 		let stream = try await services.transcriber.start()
 		var latest = ""
+		var peakLevel: Float = 0
 		for try await event in stream {
 			try Task.checkCancellation()
 			switch event {
@@ -115,6 +123,7 @@ public final class BuddyCoordinator {
 					state = .listening(transcript: text, level: level)
 				}
 			case .level(let level):
+				peakLevel = max(peakLevel, level)
 				if case .listening(let text, _) = state {
 					state = .listening(transcript: text, level: level)
 				}
@@ -122,7 +131,7 @@ public final class BuddyCoordinator {
 				latest = text
 			}
 		}
-		return latest
+		return (latest, peakLevel)
 	}
 
 	private func ask(_ question: String) async throws {
