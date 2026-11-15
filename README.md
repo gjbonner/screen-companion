@@ -14,7 +14,7 @@ The Shadow Buddy name and Shadow branding are referenced solely to identify the 
 
 # Buddy
 
-Buddy is a screen-aware voice companion for the Mac. Hold **Control + Option**, speak, and let go.
+Buddy is a screen-aware voice companion for the Mac. Hold **Control + Option** (or another hotkey you choose), speak, and let go.
 
 - **Ask** (default): Buddy looks at your screen, answers out loud in a sentence or two, and points at what it's talking about.
 - **Draft**: Buddy cleans up your dictation and pastes it where your cursor is.
@@ -37,9 +37,10 @@ The window closes itself when everything is set. You can reopen it any time from
 | To | Do this |
 | --- | --- |
 | Ask about your screen | Hold **⌃⌥**, ask, let go |
-| Switch between Ask and Draft | Press **Tab** while holding **⌃⌥**, or use the switch in the menu bar |
+| Switch between Ask and Draft | Press **Tab** while holding the hotkey, or use the switch in the menu bar |
 | Cancel | Press **Esc** |
-| Start without the hotkey | Click the menu bar icon, then **Start Ask** or **Start Draft** |
+| Start without the hotkey | Click the menu bar icon, then **Start Ask** or **Start Draft**. Buddy stops listening after 5 seconds of silence |
+| Change the hotkey | Pick **⌃⌥**, **⌥⌘**, **⌃⇧** or **Right ⌥** in the menu bar or the setup window |
 | Read answers without hearing them | Turn off **Speak answers** in the menu bar |
 
 - **Pointing:** Buddy points only when it finds the element on screen. If it can't, it says where the element is instead.
