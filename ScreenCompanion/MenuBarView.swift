@@ -35,7 +35,6 @@ struct MenuBarView: View {
 					.frame(maxWidth: .infinity)
 			}
 			.buttonStyle(.borderedProminent)
-			.tint(Theme.accent)
 
 			Text("Started here, Buddy stops after 5 seconds of silence. Or hold \(hotkey.choice.symbols) anywhere to talk.")
 				.font(.caption)

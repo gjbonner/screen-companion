@@ -6,6 +6,10 @@ import BuddyCore
 final class SystemSpeechOutput: NSObject, SpeechOutput {
 	private let synthesizer = AVSpeechSynthesizer()
 	private var waiting: [ObjectIdentifier: CheckedContinuation<Void, Never>] = [:]
+	#if DEBUG
+	/// When each utterance was asked for, to log how long the voice takes to start.
+	private var requestedAt: [ObjectIdentifier: ContinuousClock.Instant] = [:]
+	#endif
 
 	override init() {
 		super.init()
@@ -16,8 +20,14 @@ final class SystemSpeechOutput: NSObject, SpeechOutput {
 		guard !Task.isCancelled else {
 			return
 		}
+		#if DEBUG
+		let requested = ContinuousClock.now
+		#endif
 		// Chosen each time, so a voice downloaded while Buddy runs is used straight away. Listing voices is quick.
 		let utterance = Self.makeUtterance(text, voice: Self.bestVoice())
+		#if DEBUG
+		requestedAt[ObjectIdentifier(utterance)] = requested
+		#endif
 		await withCheckedContinuation { continuation in
 			waiting[ObjectIdentifier(utterance)] = continuation
 			synthesizer.speak(utterance)
@@ -28,14 +38,29 @@ final class SystemSpeechOutput: NSObject, SpeechOutput {
 		synthesizer.stopSpeaking(at: .immediate)
 		let pending = waiting.values
 		waiting.removeAll()
+		#if DEBUG
+		requestedAt.removeAll()
+		#endif
 		for continuation in pending {
 			continuation.resume()
 		}
 	}
 
 	fileprivate func utteranceEnded(_ id: ObjectIdentifier) {
+		#if DEBUG
+		requestedAt.removeValue(forKey: id)
+		#endif
 		waiting.removeValue(forKey: id)?.resume()
 	}
+
+	#if DEBUG
+	fileprivate func utteranceStarted(_ id: ObjectIdentifier, at startedAt: ContinuousClock.Instant) {
+		guard let requested = requestedAt.removeValue(forKey: id) else {
+			return
+		}
+		Log.timing.info("Voice started \(Log.milliseconds(startedAt - requested)) ms after a sentence was handed to it")
+	}
+	#endif
 
 	/// Premium and Enhanced voices sound far better than the defaults when the user has downloaded them.
 	private static func bestVoice() -> AVSpeechSynthesisVoice? {
@@ -86,6 +111,16 @@ final class SystemSpeechOutput: NSObject, SpeechOutput {
 }
 
 extension SystemSpeechOutput: AVSpeechSynthesizerDelegate {
+	#if DEBUG
+	nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+		let id = ObjectIdentifier(utterance)
+		let startedAt = ContinuousClock.now
+		Task { @MainActor in
+			self.utteranceStarted(id, at: startedAt)
+		}
+	}
+	#endif
+
 	nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
 		let id = ObjectIdentifier(utterance)
 		Task { @MainActor in

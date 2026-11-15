@@ -104,11 +104,17 @@ public final class BuddyCoordinator {
 		}
 	}
 
+	/// Called once per Ask, when its first sentence is handed to the voice. Debug builds log it.
+	@ObservationIgnored public var onAskTiming: ((AskTiming) -> Void)?
+	/// When listening last stopped; Ask timings are measured from here.
+	@ObservationIgnored private var listeningStoppedAt: ContinuousClock.Instant?
+
 	/// Hotkey released, or listening stopped from the menu bar.
 	public func stopListening() {
 		guard case .listening = state else {
 			return
 		}
+		listeningStoppedAt = .now
 		silenceTask?.cancel()
 		silenceTask = nil
 		state = .thinking
@@ -193,6 +199,8 @@ public final class BuddyCoordinator {
 	}
 
 	private func ask(_ question: String) async throws {
+		let stoppedAt = listeningStoppedAt
+		let transcribedAt = ContinuousClock.now
 		guard services.permissions.isGranted(.screenRecording) else {
 			throw BuddyError(Self.screenRecordingMessage)
 		}
@@ -205,6 +213,7 @@ public final class BuddyCoordinator {
 		}
 		let capture = captureTask ?? startCapture()
 		let screen = try await capture.value
+		let screenReadyAt = ContinuousClock.now
 		try Task.checkCancellation()
 		guard !services.secureInput.isSecureInputActive() else {
 			throw BuddyError(Self.secureInputMessage)
@@ -217,12 +226,30 @@ public final class BuddyCoordinator {
 		var splitter = SentenceSplitter()
 		var text = ""
 		var searchOffset = 0
+		var firstTokenAt: ContinuousClock.Instant?
+		var timingReported = false
+
+		func reportTiming() {
+			guard !timingReported, let stoppedAt, let firstTokenAt else {
+				return
+			}
+			timingReported = true
+			onAskTiming?(AskTiming(
+				transcript: transcribedAt - stoppedAt,
+				screen: screenReadyAt - stoppedAt,
+				firstToken: firstTokenAt - stoppedAt,
+				firstSentence: .now - stoppedAt
+			))
+		}
 
 		func queue(_ completed: [String]) {
 			for sentence in completed {
 				let end = Self.endOffset(of: sentence, in: text, from: searchOffset)
 				searchOffset = end
 				sentenceQueue.yield(SpokenSentence(text: sentence, endOffset: end))
+			}
+			if !completed.isEmpty {
+				reportTiming()
 			}
 		}
 
@@ -231,6 +258,9 @@ public final class BuddyCoordinator {
 				try Task.checkCancellation()
 				switch event {
 				case .text(let chunk):
+					if firstTokenAt == nil {
+						firstTokenAt = .now
+					}
 					text += chunk
 					queue(splitter.add(chunk))
 				case .point(let guess):
