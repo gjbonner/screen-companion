@@ -21,7 +21,7 @@ The mode where your dictation is cleaned up and inserted into the focused app, w
 _Avoid_: Dictation mode, write mode, type mode
 
 **Hold**:
-Keeping the hotkey (Control and Option) pressed while speaking. Releasing it ends listening.
+Keeping the hotkey (Control and Option unless changed) pressed while speaking. Releasing it ends listening.
 _Avoid_: Press, push
 
 ## On screen

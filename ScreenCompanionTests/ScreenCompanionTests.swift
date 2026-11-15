@@ -7,6 +7,6 @@ struct ScreenCompanionTests {
 	@MainActor
 	func menuBarViewBuilds() {
 		let coordinator = BuddyCoordinator(services: .placeholders)
-		_ = MenuBarView(coordinator: coordinator, setup: SetupMonitor(), openSetup: {}).body
+		_ = MenuBarView(coordinator: coordinator, setup: SetupMonitor(), hotkey: HotkeySetting(), openSetup: {}).body
 	}
 }

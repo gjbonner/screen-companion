@@ -132,17 +132,19 @@ final class OnboardingWindowController {
 	private static let closeDelay: Duration = .milliseconds(1500)
 
 	private let setup: SetupMonitor
+	private let hotkey: HotkeySetting
 	private var window: NSWindow?
 	private var closeTask: Task<Void, Never>?
 
-	init(setup: SetupMonitor) {
+	init(setup: SetupMonitor, hotkey: HotkeySetting) {
 		self.setup = setup
+		self.hotkey = hotkey
 		observeProgress()
 	}
 
 	func show() {
 		if window == nil {
-			let host = NSHostingController(rootView: OnboardingView(setup: setup))
+			let host = NSHostingController(rootView: OnboardingView(setup: setup, hotkey: hotkey))
 			let window = NSWindow(contentViewController: host)
 			window.title = "Set Up Buddy"
 			window.styleMask = [.titled, .closable]
@@ -192,13 +194,14 @@ final class OnboardingWindowController {
 
 struct OnboardingView: View {
 	let setup: SetupMonitor
+	let hotkey: HotkeySetting
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 18) {
 			VStack(alignment: .leading, spacing: 4) {
 				Text("Set up Buddy")
 					.font(.title2.weight(.semibold))
-				Text(setup.checklist.isComplete ? "You're all set. Hold ⌃⌥ anywhere to talk." : "Buddy needs a few things before it can help.")
+				Text(setup.checklist.isComplete ? "You're all set. Hold \(hotkey.choice.symbols) anywhere to talk." : "Buddy needs a few things before it can help.")
 					.foregroundStyle(.secondary)
 			}
 
@@ -214,6 +217,21 @@ struct OnboardingView: View {
 			}
 			.padding(.horizontal, 14)
 			.background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+			HStack(alignment: .firstTextBaseline, spacing: 10) {
+				VStack(alignment: .leading, spacing: 2) {
+					Text("Hotkey")
+						.font(.body.weight(.medium))
+					Text("Hold it to talk. Another key pressed with it goes to your app as usual, so no shortcut is taken over.")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+						.fixedSize(horizontal: false, vertical: true)
+				}
+				Spacer(minLength: 8)
+				HotkeyPicker(hotkey: hotkey)
+					.labelsHidden()
+					.fixedSize()
+			}
 
 			if !setup.hasEnhancedVoice {
 				VoiceTip(setup: setup)
@@ -410,11 +428,11 @@ private extension Permission {
 	var reason: String {
 		switch self {
 		case .microphone:
-			return "To hear your questions and dictation while you hold ⌃⌥."
+			return "To hear your questions and dictation while you hold the hotkey."
 		case .speechRecognition:
 			return "To turn your speech into text, on your Mac when possible."
 		case .accessibility:
-			return "For the ⌃⌥ hotkey, pasting Draft text, and finding what to point at."
+			return "For the hotkey, pasting Draft text, and finding what to point at."
 		case .screenRecording:
 			return "To see your screen when you ask. Buddy never sees its own windows, and doesn't look while a password field is active."
 		}

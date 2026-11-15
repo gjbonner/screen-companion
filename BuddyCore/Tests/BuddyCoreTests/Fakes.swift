@@ -248,7 +248,8 @@ struct Harness {
 		cleaner: FakeCleaner = FakeCleaner(),
 		speech: FakeSpeech = FakeSpeech(),
 		inserter: FakeInserter = FakeInserter(),
-		apiKeys: FakeAPIKeys = FakeAPIKeys()
+		apiKeys: FakeAPIKeys = FakeAPIKeys(),
+		silenceTimeout: Duration = .seconds(5)
 	) {
 		transcriber = FakeTranscriber(finalText: finalText)
 		screen = FakeScreenCapturer()
@@ -271,7 +272,8 @@ struct Harness {
 			),
 			messageDuration: .seconds(60),
 			answerLinger: .zero,
-			readingTimePerWord: .zero
+			readingTimePerWord: .zero,
+			silenceTimeout: silenceTimeout
 		)
 	}
 }

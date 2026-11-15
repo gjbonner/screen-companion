@@ -278,7 +278,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Buddy;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Giles Bonner. All rights reserved.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Buddy listens while you hold Control and Option so it can hear your question or dictation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Buddy listens while you hold your Buddy hotkey so it can hear your question or dictation.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Buddy turns what you say into text so it can answer you or type for you.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -308,7 +308,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Buddy;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Giles Bonner. All rights reserved.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Buddy listens while you hold Control and Option so it can hear your question or dictation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Buddy listens while you hold your Buddy hotkey so it can hear your question or dictation.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Buddy turns what you say into text so it can answer you or type for you.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -5,6 +5,7 @@ import SwiftUI
 struct MenuBarView: View {
 	let coordinator: BuddyCoordinator
 	let setup: SetupMonitor
+	@Bindable var hotkey: HotkeySetting
 	let openSetup: () -> Void
 
 	var body: some View {
@@ -36,13 +37,16 @@ struct MenuBarView: View {
 			.buttonStyle(.borderedProminent)
 			.tint(Theme.accent)
 
-			Text("Or hold ⌃⌥ anywhere to talk.")
+			Text("Started here, Buddy stops after 5 seconds of silence. Or hold \(hotkey.choice.symbols) anywhere to talk.")
 				.font(.caption)
 				.foregroundStyle(.secondary)
+				.fixedSize(horizontal: false, vertical: true)
 
 			Toggle("Speak answers", isOn: speakAnswersBinding)
 				.toggleStyle(.switch)
 				.controlSize(.small)
+
+			HotkeyPicker(hotkey: hotkey)
 
 			Divider()
 
@@ -59,7 +63,7 @@ struct MenuBarView: View {
 	}
 
 	/// The warning at the top of the menu while setup is incomplete, or nil once it's done.
-	static func setupWarning(for checklist: SetupChecklist) -> String? {
+	nonisolated static func setupWarning(for checklist: SetupChecklist) -> String? {
 		guard !checklist.isComplete else {
 			return nil
 		}
@@ -99,8 +103,23 @@ struct MenuBarView: View {
 		if isListening {
 			coordinator.stopListening()
 		} else {
-			coordinator.startListening()
+			// No key release ends listening started here, so silence does.
+			coordinator.startListening(stopsOnSilence: true)
 		}
+	}
+}
+
+/// Chooses the hold that starts Buddy. Used in the menu bar and the setup window.
+struct HotkeyPicker: View {
+	@Bindable var hotkey: HotkeySetting
+
+	var body: some View {
+		Picker("Hotkey", selection: $hotkey.choice) {
+			ForEach(HotkeyChoice.allCases, id: \.self) { choice in
+				Text(choice.title).tag(choice)
+			}
+		}
+		.controlSize(.small)
 	}
 }
 
@@ -115,7 +134,7 @@ struct MenuBarIcon: View {
 		Image(systemName: Self.symbolName(mode: coordinator.mode, setupComplete: setup.checklist.isComplete))
 	}
 
-	static func symbolName(mode: BuddyMode, setupComplete: Bool) -> String {
+	nonisolated static func symbolName(mode: BuddyMode, setupComplete: Bool) -> String {
 		guard setupComplete else {
 			return "exclamationmark.triangle"
 		}

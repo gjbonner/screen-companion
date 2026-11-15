@@ -18,9 +18,23 @@ final class HotkeyMonitor {
 	private static let tabKeyCode: Int64 = 48
 	private static let escapeKeyCode: Int64 = 53
 
-	init(onAction: @escaping @MainActor (HotkeyAction) -> Void, isBuddyBusy: @escaping @MainActor () -> Bool) {
+	/// Option's left and right keys, which `CGEventFlags` has no names for (NX_DEVICELALTKEYMASK, NX_DEVICERALTKEYMASK).
+	private static let leftOptionMask: UInt64 = 0x20
+	private static let rightOptionMask: UInt64 = 0x40
+
+	init(
+		hotkey: HotkeyChoice,
+		onAction: @escaping @MainActor (HotkeyAction) -> Void,
+		isBuddyBusy: @escaping @MainActor () -> Bool
+	) {
+		interpreter.hotkey = hotkey
 		self.onAction = onAction
 		self.isBuddyBusy = isBuddyBusy
+	}
+
+	/// Takes effect from the next press.
+	func setHotkey(_ hotkey: HotkeyChoice) {
+		interpreter.hotkey = hotkey
 	}
 
 	var isRunning: Bool {
@@ -89,14 +103,21 @@ final class HotkeyMonitor {
 				control: event.flags.contains(.maskControl),
 				option: event.flags.contains(.maskAlternate),
 				command: event.flags.contains(.maskCommand),
-				shift: event.flags.contains(.maskShift)
+				shift: event.flags.contains(.maskShift),
+				leftOption: event.flags.rawValue & Self.leftOptionMask != 0,
+				rightOption: event.flags.rawValue & Self.rightOptionMask != 0
 			)
 			let decision = interpreter.modifiersChanged(to: modifiers, at: ProcessInfo.processInfo.systemUptime)
 			perform(decision.action)
 			return decision.swallow
 
 		case .keyDown:
-			let decision = interpreter.keyDown(Self.key(for: event.keyCode), isRepeat: event.isRepeat, buddyIsBusy: isBuddyBusy())
+			let decision = interpreter.keyDown(
+				Self.key(for: event.keyCode),
+				isRepeat: event.isRepeat,
+				buddyIsBusy: isBuddyBusy(),
+				at: ProcessInfo.processInfo.systemUptime
+			)
 			if decision.swallow {
 				swallowedKeyCodes.insert(event.keyCode)
 			}
