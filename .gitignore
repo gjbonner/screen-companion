@@ -12,3 +12,6 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Secrets
+.env
