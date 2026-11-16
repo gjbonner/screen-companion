@@ -21,14 +21,25 @@ Buddy is a screen-aware voice companion for the Mac. Hold **Control + Option** (
 
 ## Try it
 
-1. Download `Buddy.zip` from the [latest release](https://github.com/gjbonner/screen-companion/releases/latest) and unzip it.
-2. Move **Buddy** into **Applications**.
-3. Open it. The build isn't notarized, so macOS blocks the first launch. Click **Done**, then go to **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to Buddy. Or run:
+1. Install and open Buddy by pasting this into Terminal:
+   ```sh
+   curl -L https://github.com/gjbonner/screen-companion/releases/latest/download/Buddy.zip -o /tmp/Buddy.zip && ditto -x -k /tmp/Buddy.zip /Applications && open /Applications/Buddy.app
+   ```
+   The build isn't notarized, so a copy downloaded in a browser is blocked on first launch. Downloading it from Terminal avoids that.
+2. Buddy appears in the menu bar and opens **Set Up Buddy**. Follow the rows (details in [What it needs](#what-it-needs)). Screen Recording needs Buddy to relaunch once.
+3. Paste a Groq API key when asked. A free key from [console.groq.com/keys](https://console.groq.com/keys) works.
+
+<details>
+<summary>Prefer to download it in a browser?</summary>
+
+1. Download `Buddy.zip` from the [latest release](https://github.com/gjbonner/screen-companion/releases/latest), unzip it, and move **Buddy** into **Applications**.
+2. Open it. macOS blocks the first launch: click **Done**, then go to **System Settings › Privacy & Security**, scroll to the **Security** section at the bottom, and click **Open Anyway** next to Buddy. Or run:
    ```sh
    xattr -dr com.apple.quarantine /Applications/Buddy.app
    ```
-4. Buddy appears in the menu bar and opens **Set Up Buddy**. Follow the rows (details in [What it needs](#what-it-needs)). Screen Recording needs Buddy to relaunch once.
-5. Paste a Groq API key when asked. A free key from [console.groq.com/keys](https://console.groq.com/keys) works.
+3. Continue from step 2 above.
+
+</details>
 
 The window closes itself when everything is set. You can reopen it any time from **Setup…** in the menu bar.
 
