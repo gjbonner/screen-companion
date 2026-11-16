@@ -52,14 +52,16 @@ final class SetupMonitor {
 		case .allow:
 			await permissions.request(permission)
 		case .openSettings:
-			// The first request shows macOS's own prompt, whose button opens System Settings; opening it as well
-			// would show both. macOS only prompts once, so after that Buddy opens Settings itself.
+			// Always ask macOS first: that is what puts Buddy in the permission's list in System Settings, and a
+			// reset of permissions (tccutil) removes it again without Buddy knowing. Asking when Buddy is already
+			// listed does nothing. The first request shows macOS's own prompt, whose button opens System Settings;
+			// opening it as well would show both, so Buddy only opens Settings itself after that.
 			let askedKey = Self.askedKey(for: permission)
-			if UserDefaults.standard.bool(forKey: askedKey) {
+			let askedBefore = UserDefaults.standard.bool(forKey: askedKey)
+			UserDefaults.standard.set(true, forKey: askedKey)
+			await permissions.request(permission)
+			if askedBefore {
 				permissions.openSettings(for: permission)
-			} else {
-				UserDefaults.standard.set(true, forKey: askedKey)
-				await permissions.request(permission)
 			}
 			if permission == .screenRecording {
 				UserDefaults.standard.set(true, forKey: Self.screenRecordingRequestedKey)
@@ -125,21 +127,44 @@ final class SetupMonitor {
 /// The setup window: shown at launch while anything is missing, and from "Setup…" in the menu bar.
 ///
 /// Buddy has no Dock icon, so once System Settings or a macOS prompt comes forward the window would be stranded
-/// behind it. Whenever a step changes, the window comes back to the front, and it closes itself shortly after
-/// everything is in place.
+/// behind it. Whenever a step is completed, the window comes back to the front, and it closes itself shortly after
+/// everything is in place. While System Settings or a permission prompt is in front, the window never jumps over
+/// it: it waits until System Settings quits.
 @MainActor
 final class OnboardingWindowController {
 	private static let closeDelay: Duration = .milliseconds(1500)
+	/// System Settings, and the apps that show its password and permission prompts.
+	private static let settingsApps: Set<String> = [
+		"com.apple.systempreferences",
+		"com.apple.SecurityAgent",
+		"com.apple.UserNotificationCenter",
+	]
 
 	private let setup: SetupMonitor
 	private let hotkey: HotkeySetting
 	private var window: NSWindow?
 	private var closeTask: Task<Void, Never>?
+	/// Steps left at the last change, so the window only comes forward when one is completed.
+	private var lastRemainingCount: Int
+	/// A step was completed while System Settings was in front; come back once it quits.
+	private var returnWhenSettingsQuits = false
 
 	init(setup: SetupMonitor, hotkey: HotkeySetting) {
 		self.setup = setup
 		self.hotkey = hotkey
+		lastRemainingCount = setup.checklist.remainingCount
 		observeProgress()
+		NSWorkspace.shared.notificationCenter.addObserver(
+			forName: NSWorkspace.didTerminateApplicationNotification,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+			let bundleID = app?.bundleIdentifier
+			MainActor.assumeIsolated {
+				self?.appQuit(bundleID)
+			}
+		}
 	}
 
 	func show() {
@@ -170,12 +195,23 @@ final class OnboardingWindowController {
 
 	private func progressChanged() {
 		closeTask?.cancel()
+		let remaining = setup.checklist.remainingCount
+		let stepCompleted = remaining < lastRemainingCount
+		lastRemainingCount = remaining
 		guard let window, window.isVisible else {
 			return
 		}
-		// Bring the checklist back after the user flips a switch in System Settings or answers a prompt.
-		NSApp.activate()
-		window.makeKeyAndOrderFront(nil)
+		// Bring the checklist back after the user flips a switch in System Settings or answers a prompt. Only a
+		// completed step does this: coming forward for any other change (such as Screen Recording being requested)
+		// would pull focus from System Settings while the user is entering their password there.
+		guard stepCompleted else {
+			return
+		}
+		if Self.settingsAppIsInFront {
+			returnWhenSettingsQuits = true
+		} else {
+			bringForward()
+		}
 		guard setup.checklist.isComplete else {
 			return
 		}
@@ -187,6 +223,28 @@ final class OnboardingWindowController {
 			}
 			self.window?.close()
 		}
+	}
+
+	private func appQuit(_ bundleID: String?) {
+		guard bundleID == "com.apple.systempreferences", returnWhenSettingsQuits else {
+			return
+		}
+		returnWhenSettingsQuits = false
+		if let window, window.isVisible {
+			bringForward()
+		}
+	}
+
+	private func bringForward() {
+		NSApp.activate()
+		window?.makeKeyAndOrderFront(nil)
+	}
+
+	private static var settingsAppIsInFront: Bool {
+		guard let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+			return false
+		}
+		return settingsApps.contains(bundleID)
 	}
 }
 
