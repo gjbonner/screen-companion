@@ -67,9 +67,9 @@ struct SystemPermissionChecker: PermissionChecker {
 			let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
 			_ = AXIsProcessTrustedWithOptions(options)
 		case .screenRecording:
-			// The older call alone doesn't always add Buddy to the Screen Recording list on recent macOS, notably
-			// after permissions were reset. Asking ScreenCaptureKit for the list of displays (no capture) does.
-			CGRequestScreenCaptureAccess()
+			// Asking ScreenCaptureKit for the list of displays (no capture) shows macOS's prompt and adds Buddy to the
+			// Screen Recording list, even after permissions were reset. The older CGRequestScreenCaptureAccess() isn't
+			// also called: it opens System Settings on its own, so the two showed one after the other, a click apart.
 			_ = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 		}
 	}
@@ -88,8 +88,17 @@ struct SystemPermissionChecker: PermissionChecker {
 		case .screenRecording:
 			anchor = "Privacy_ScreenCapture"
 		}
-		if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
-			NSWorkspace.shared.open(url)
+		guard let url = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(anchor)") else {
+			return
+		}
+		// When System Settings is already open on another pane (such as Accessibility, from the step before), the first
+		// link only brings it forward without changing pane. Sending the link again once it's in front navigates.
+		let settingsWasOpen = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systempreferences").isEmpty
+		NSWorkspace.shared.open(url)
+		if settingsWasOpen {
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+				NSWorkspace.shared.open(url)
+			}
 		}
 	}
 }

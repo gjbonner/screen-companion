@@ -15,7 +15,8 @@ public enum SetupAction: Sendable, Equatable {
 	case allow
 	/// Send the user to the right pane of System Settings.
 	case openSettings
-	/// Screen Recording only takes effect after Buddy restarts.
+	/// Screen Recording only takes effect after Buddy restarts. The restart is macOS's own Quit & Reopen prompt, so the
+	/// row explains it rather than offering a second way to restart.
 	case relaunch
 	/// Paste a Groq API key.
 	case enterKey
@@ -26,7 +27,7 @@ public struct SetupChecklist: Sendable, Equatable {
 	public var statuses: [Permission: PermissionStatus]
 	public var hasAPIKey: Bool
 	/// Whether the user has already been sent to System Settings for Screen Recording. macOS only reports the
-	/// grant after a relaunch, so from then on the row offers to relaunch.
+	/// grant after a restart, so from then on the row says how to restart.
 	public var screenRecordingRequested: Bool
 
 	public init(statuses: [Permission: PermissionStatus], hasAPIKey: Bool, screenRecordingRequested: Bool) {

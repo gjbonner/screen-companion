@@ -2,34 +2,47 @@ import BuddyCore
 import Foundation
 import Security
 
+/// An API key store that setup can also save to. Tests provide an in-memory one.
+protocol SavedAPIKeyStore: APIKeyStore {
+	func save(_ key: String) throws
+}
+
 /// The Groq API key, stored in the user's Keychain.
 ///
-/// Debug builds also read `GROQ_API_KEY` from the repo's gitignored `.env`, so development needs no setup.
-/// Release builds never look for that file.
-struct KeychainAPIKeyStore: APIKeyStore {
+/// Debug builds fall back to `GROQ_API_KEY` in the repo's gitignored `.env` when the Keychain has no key, so
+/// development needs no setup. A key saved in Setup always wins, so it can be replaced. Release builds never look for that file.
+struct KeychainAPIKeyStore: SavedAPIKeyStore {
 	private static let service = "com.gilesbonner.screencompanion"
 	private static let account = "groq-api-key"
 
 	func apiKey() -> String? {
-		#if DEBUG
-		if let key = Self.keyFromDotEnv() {
+		if let key = Self.readKeychain() {
 			return key
 		}
+		#if DEBUG
+		return Self.keyFromDotEnv()
+		#else
+		return nil
 		#endif
-		return Self.readKeychain()
 	}
 
+	/// Replaces the saved key in place when there is one, so replacing never depends on deleting first.
 	func save(_ key: String) throws {
-		let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-		delete()
-		let item: [String: Any] = [
+		let data = Data(key.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+		let query: [String: Any] = [
 			kSecClass as String: kSecClassGenericPassword,
 			kSecAttrService as String: Self.service,
 			kSecAttrAccount as String: Self.account,
-			kSecValueData as String: Data(trimmed.utf8),
 		]
-		let status = SecItemAdd(item as CFDictionary, nil)
+		var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+		if status == errSecItemNotFound {
+			var item = query
+			item[kSecValueData as String] = data
+			status = SecItemAdd(item as CFDictionary, nil)
+		}
 		guard status == errSecSuccess else {
+			let reason = SecCopyErrorMessageString(status, nil) as String? ?? "unknown"
+			Log.pill.error("Keychain save failed: \(status, privacy: .public) \(reason, privacy: .public)")
 			throw BuddyError("Couldn't save the API key to the Keychain.")
 		}
 	}
