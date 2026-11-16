@@ -231,7 +231,7 @@ private struct HighlightView: View {
 	}
 }
 
-/// Placeholder mark until the ship branch adds the original artwork.
+/// Buddy's mark: a purple dot with a white ring, the same mark as in the app icon.
 private struct MarkView: View {
 	var body: some View {
 		Circle()
