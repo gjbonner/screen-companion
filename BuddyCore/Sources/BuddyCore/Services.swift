@@ -9,8 +9,8 @@ import Foundation
 public enum Permission: Sendable, CaseIterable {
 	case microphone
 	case speechRecognition
-	case accessibility
 	case screenRecording
+	case accessibility
 }
 
 public protocol PermissionChecker: Sendable {

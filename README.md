@@ -26,7 +26,7 @@ Buddy is a screen-aware voice companion for the Mac. Hold **Control + Option** (
    curl -L https://github.com/gjbonner/screen-companion/releases/latest/download/Buddy.zip -o /tmp/Buddy.zip && ditto -x -k /tmp/Buddy.zip /Applications && open /Applications/Buddy.app
    ```
    The build isn't notarized, so a copy downloaded in a browser is blocked on first launch. Downloading it from Terminal avoids that.
-2. Buddy appears in the menu bar and opens **Set Up Buddy**. Follow the rows (details in [What it needs](#what-it-needs)). Screen Recording needs Buddy to relaunch once.
+2. Buddy appears in the menu bar and opens **Set Up Buddy**. Follow the rows (details in [What it needs](#what-it-needs)). After you switch on Screen Recording, choose **Quit & Reopen** when macOS asks.
 3. Paste a Groq API key when asked. A free key from [console.groq.com/keys](https://console.groq.com/keys) works.
 
 <details>
@@ -73,7 +73,7 @@ open ScreenCompanion.xcodeproj
 ```
 
 1. In **Signing & Capabilities**, choose your own team (the project has the author's).
-2. For development, put your Groq key in a `.env` file at the repo root. Debug builds read it; it's gitignored and Release builds never look for it.
+2. For development, put your Groq key in a `.env` file at the repo root. Debug builds use it only when no key is saved in the Keychain; it's gitignored and Release builds never look for it.
    ```sh
    echo 'GROQ_API_KEY=gsk_...' > .env
    ```
@@ -112,10 +112,10 @@ They check that Buddy never appears in its own screenshots and that Draft pastes
 | --- | --- | --- |
 | Microphone | To hear you while you hold ⌃⌥ | **Allow** in the setup window |
 | Speech Recognition | To turn speech into text, on your Mac when possible | **Allow** in the setup window |
+| Screen Recording | To see your screen when you ask | **Open Settings**, switch Buddy on, then **Quit & Reopen** in macOS's prompt |
 | Accessibility | The ⌃⌥ hotkey, pasting Draft text, finding what to point at | **Open Settings**, then switch Buddy on |
-| Screen Recording | To see your screen when you ask | **Open Settings**, switch Buddy on, then **Relaunch Buddy** |
 
-- **A Groq API key,** stored in your Keychain. Buddy uses `qwen/qwen3.8-27b` for answers and Draft clean-up.
+- **A Groq API key,** stored in your Keychain. To change it, choose **Replace key…** in Setup; the saved key is kept until the new one passes Groq's check. Buddy uses `qwen/qwen3.8-27b` for answers and Draft clean-up.
 - **An internet connection** for answers and Draft. Speech recognition and pointing run on the Mac.
 - **macOS 15 or later.**
 

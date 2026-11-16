@@ -15,11 +15,19 @@ final class SetupMonitor {
 	private(set) var hasEnhancedVoice: Bool
 
 	@ObservationIgnored private let permissions = SystemPermissionChecker()
-	@ObservationIgnored private let apiKeys: KeychainAPIKeyStore
+	@ObservationIgnored private let apiKeys: any SavedAPIKeyStore
+	@ObservationIgnored private let validateKey: @Sendable (String) async throws -> Void
 	@ObservationIgnored private var timer: Timer?
 
-	init(apiKeys: KeychainAPIKeyStore = KeychainAPIKeyStore()) {
+	/// - Parameters:
+	///   - apiKeys: where the key is read and saved (the Keychain; tests pass an in-memory store).
+	///   - validateKey: checks a key before it's saved, throwing a user-facing error if it's rejected (Groq; tests pass a stub).
+	init(
+		apiKeys: any SavedAPIKeyStore = KeychainAPIKeyStore(),
+		validateKey: @escaping @Sendable (String) async throws -> Void = { try await GroqClient.validate(key: $0) }
+	) {
 		self.apiKeys = apiKeys
+		self.validateKey = validateKey
 		checklist = Self.readChecklist(permissions: permissions, apiKeys: apiKeys)
 		hasEnhancedVoice = Self.enhancedVoiceInstalled()
 		// Permissions change in System Settings, outside Buddy, so they're polled. Each check is a cheap local call.
@@ -47,10 +55,17 @@ final class SetupMonitor {
 	/// Carries out a row's action.
 	func perform(_ action: SetupAction, for permission: Permission) async {
 		switch action {
-		case .done, .enterKey:
+		case .done, .enterKey, .relaunch:
+			// Restarting for Screen Recording is left to macOS's own Quit & Reopen prompt, so there's only one way to do it.
 			return
 		case .allow:
 			await permissions.request(permission)
+		case .openSettings where permission == .screenRecording:
+			// Only macOS's own screen recording prompt adds Buddy to the Screen & System Audio Recording list, when its
+			// Open System Settings button is clicked. If Buddy opens Settings itself, the pane shows without Buddy and the
+			// prompt is lost behind it. So Buddy only asks; clicking again brings the prompt back.
+			await permissions.request(permission)
+			UserDefaults.standard.set(true, forKey: Self.screenRecordingRequestedKey)
 		case .openSettings:
 			// Always ask macOS first: that is what puts Buddy in the permission's list in System Settings, and a
 			// reset of permissions (tccutil) removes it again without Buddy knowing. Asking when Buddy is already
@@ -63,22 +78,18 @@ final class SetupMonitor {
 			if askedBefore {
 				permissions.openSettings(for: permission)
 			}
-			if permission == .screenRecording {
-				UserDefaults.standard.set(true, forKey: Self.screenRecordingRequestedKey)
-			}
-		case .relaunch:
-			relaunch()
 		}
 		refresh()
 	}
 
-	/// Checks the key with Groq, then saves it to the Keychain. Throws a user-facing error.
+	/// Checks the key, then saves it, replacing any saved key. A rejected key never overwrites the saved one.
+	/// Throws a user-facing error.
 	func saveAPIKey(_ key: String) async throws {
 		let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !trimmed.isEmpty else {
 			throw BuddyError("Paste your Groq API key first.")
 		}
-		try await GroqClient.validate(key: trimmed)
+		try await validateKey(trimmed)
 		try apiKeys.save(trimmed)
 		refresh()
 	}
@@ -89,25 +100,12 @@ final class SetupMonitor {
 		}
 	}
 
-	/// Starts a new copy of Buddy once this one has quit, so Screen Recording takes effect.
-	private func relaunch() {
-		let process = Process()
-		process.executableURL = URL(fileURLWithPath: "/bin/sh")
-		process.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
-		do {
-			try process.run()
-			NSApp.terminate(nil)
-		} catch {
-			Log.pill.error("Couldn't relaunch: \(error.localizedDescription, privacy: .public)")
-		}
-	}
-
 	/// Whether Buddy has already asked macOS for this permission, so its one-time prompt has been shown.
 	private static func askedKey(for permission: Permission) -> String {
 		"asked.\(permission)"
 	}
 
-	private static func readChecklist(permissions: SystemPermissionChecker, apiKeys: KeychainAPIKeyStore) -> SetupChecklist {
+	private static func readChecklist(permissions: SystemPermissionChecker, apiKeys: any APIKeyStore) -> SetupChecklist {
 		let statuses = Dictionary(uniqueKeysWithValues: Permission.allCases.map { ($0, permissions.status(of: $0)) })
 		return SetupChecklist(
 			statuses: statuses,
@@ -207,8 +205,15 @@ final class OnboardingWindowController {
 		guard stepCompleted else {
 			return
 		}
-		if Self.settingsAppIsInFront {
+		if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" {
+			// The user is in System Settings: come back once it quits, never over it.
 			returnWhenSettingsQuits = true
+		} else if Self.settingsAppIsInFront {
+			// A macOS prompt (Microphone, Speech Recognition) was just answered and is closing. System Settings may
+			// never open in this case, so don't wait for it to quit: come back once the prompt is gone.
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+				self?.bringForward()
+			}
 		} else {
 			bringForward()
 		}
@@ -236,8 +241,12 @@ final class OnboardingWindowController {
 	}
 
 	private func bringForward() {
+		// macOS refuses activation for an app that isn't in front (Buddy has no Dock icon, and a permission prompt
+		// hands focus back to the previous app), so `activate()` alone can leave the window buried.
+		// `orderFrontRegardless()` lifts the window above other apps' windows either way.
 		NSApp.activate()
 		window?.makeKeyAndOrderFront(nil)
+		window?.orderFrontRegardless()
 	}
 
 	private static var settingsAppIsInFront: Bool {
@@ -314,7 +323,7 @@ private struct PermissionRow: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(permission.title)
 					.font(.body.weight(.medium))
-				Text(action == .relaunch ? "Once it's switched on in System Settings, relaunch Buddy to use it." : permission.reason)
+					Text(action == .relaunch ? "In the macOS prompt about recording your screen, click Open System Settings, switch Buddy on, then choose Quit & Reopen. No prompt? Click Open Settings again." : permission.reason)
 					.font(.caption)
 					.foregroundStyle(.secondary)
 					.fixedSize(horizontal: false, vertical: true)
@@ -345,23 +354,11 @@ private struct StatusControl: View {
 			Button("Allow") {
 				perform(.allow)
 			}
-		case .openSettings:
+		case .openSettings, .relaunch:
+			// While waiting for the restart, Settings stays reachable: the switch may not be on yet, for example
+			// after permissions were reset. The restart itself is macOS's Quit & Reopen prompt, not a Buddy button.
 			Button("Open Settings") {
 				perform(.openSettings)
-			}
-		case .relaunch:
-			// Settings stays reachable: the switch may not be on yet, for example after permissions were reset.
-			VStack(alignment: .trailing, spacing: 6) {
-				Button("Relaunch Buddy") {
-					perform(.relaunch)
-				}
-				.buttonStyle(.borderedProminent)
-				.tint(Theme.accent)
-				Button("Open Settings") {
-					perform(.openSettings)
-				}
-				.buttonStyle(.link)
-				.font(.caption)
 			}
 		}
 	}
@@ -372,8 +369,11 @@ private struct APIKeyRow: View {
 	@State private var key = ""
 	@State private var isChecking = false
 	@State private var problem: String?
+	/// The user chose to replace a saved key, for example after Groq rejected it. The saved key stays until a new one passes the check.
+	@State private var isReplacing = false
 
 	var body: some View {
+		let showsEntry = !setup.checklist.hasAPIKey || isReplacing
 		HStack(alignment: .top, spacing: 12) {
 			Image(systemName: "key")
 				.font(.title3)
@@ -382,20 +382,35 @@ private struct APIKeyRow: View {
 			VStack(alignment: .leading, spacing: 6) {
 				Text("Groq API key")
 					.font(.body.weight(.medium))
-				if setup.checklist.hasAPIKey {
+				if !showsEntry {
 					Text("Saved in your Keychain.")
 						.font(.caption)
 						.foregroundStyle(.secondary)
+					Button("Replace key…") {
+						problem = nil
+						isReplacing = true
+					}
+					.buttonStyle(.link)
+					.font(.caption)
 				} else {
-					Text("Answers and Draft clean-up use Groq. A free key works.")
+					Text(isReplacing ? "Paste a new key. Your saved key is kept until this one is checked." : "Answers and Draft clean-up use Groq. A free key works.")
 						.font(.caption)
 						.foregroundStyle(.secondary)
+						.fixedSize(horizontal: false, vertical: true)
 					HStack {
 						SecureField("gsk_…", text: $key)
 							.textFieldStyle(.roundedBorder)
 							.onSubmit(save)
 						Button(isChecking ? "Checking…" : "Save", action: save)
 							.disabled(isChecking || key.isEmpty)
+						if isReplacing {
+							Button("Cancel") {
+								key = ""
+								problem = nil
+								isReplacing = false
+							}
+							.disabled(isChecking)
+						}
 					}
 					if let problem {
 						Text(problem)
@@ -407,7 +422,7 @@ private struct APIKeyRow: View {
 				}
 			}
 			Spacer(minLength: 8)
-			if setup.checklist.hasAPIKey {
+			if !showsEntry {
 				Image(systemName: "checkmark.circle.fill")
 					.font(.title3)
 					.foregroundStyle(.green)
@@ -427,6 +442,7 @@ private struct APIKeyRow: View {
 			do {
 				try await setup.saveAPIKey(key)
 				key = ""
+				isReplacing = false
 			} catch let error as BuddyError {
 				problem = error.userMessage
 			} catch {
